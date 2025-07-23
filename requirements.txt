@@ -2,3 +2,4 @@ openai
 dotenv
 scikit-learn
 plotly
+nltk
