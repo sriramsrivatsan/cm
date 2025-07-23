@@ -22,6 +22,12 @@ from nltk.tag import pos_tag
 import string
 from datetime import datetime
 import warnings
+try:
+    import tiktoken  # For token counting and management
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    st.warning("⚠️ tiktoken not installed. Token management will use approximations. Install with: pip install tiktoken")
 warnings.filterwarnings('ignore')
 
 # Download required NLTK data
@@ -442,86 +448,164 @@ class CSVProcessor:
         self.data_summary = summary
         return summary
 
+import tiktoken  # Add this import at the top
+
 class OpenAIQueryProcessor:
     def __init__(self, api_key):
         self.client = openai.OpenAI(api_key=api_key)
+        # Initialize tokenizer for gpt-3.5-turbo
+        if TIKTOKEN_AVAILABLE:
+            try:
+                self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+            except:
+                self.tokenizer = tiktoken.get_encoding("cl100k_base")  # fallback
+        else:
+            self.tokenizer = None
+
+        self.max_context_length = 16385
+        self.max_completion_tokens = 1500
+        self.max_input_tokens = self.max_context_length - self.max_completion_tokens - 100  # safety buffer
+
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in a text string"""
+        if self.tokenizer and TIKTOKEN_AVAILABLE:
+            try:
+                return len(self.tokenizer.encode(text))
+            except:
+                pass
+
+        # Fallback: rough approximation (1 token ≈ 0.75 words)
+        return int(len(text.split()) * 1.3)
+
+    def truncate_text(self, text: str, max_tokens: int) -> str:
+        """Truncate text to fit within token limit"""
+        if self.count_tokens(text) <= max_tokens:
+            return text
+
+        # Split into sentences and keep as many as possible
+        sentences = text.split('. ')
+        truncated = ""
+
+        for sentence in sentences:
+            test_text = truncated + sentence + ". "
+            if self.count_tokens(test_text) > max_tokens:
+                break
+            truncated = test_text
+
+        if not truncated:  # If even first sentence is too long
+            words = text.split()
+            truncated = ""
+            for word in words:
+                test_text = truncated + " " + word
+                if self.count_tokens(test_text) > max_tokens:
+                    break
+                truncated = test_text
+
+        return truncated.strip() + "..."
 
     def generate_system_prompt(self, data_summary: Dict, include_tokenization: bool = True) -> str:
-        """Generate an enhanced system prompt based on the data summary and tokenization"""
-        prompt = f"""You are an advanced data analyst assistant with access to a comprehensively tokenized dataset.
+        """Generate an optimized system prompt based on the data summary and tokenization"""
+        # Start with essential information
+        prompt = f"""You are an advanced data analyst assistant with access to a tokenized dataset.
 
-Dataset Overview:
-- Total rows: {data_summary['dataset_info']['total_rows']}
-- Total columns: {data_summary['dataset_info']['total_columns']}
-- Columns: {', '.join(data_summary['dataset_info']['column_names'])}
+Dataset: {data_summary['dataset_info']['total_rows']:,} rows × {data_summary['dataset_info']['total_columns']} columns
+Columns: {', '.join(data_summary['dataset_info']['column_names'][:10])}{"..." if len(data_summary['dataset_info']['column_names']) > 10 else ""}
 
 """
 
+        # Add tokenization summary if available and requested
         if include_tokenization and data_summary.get('tokenization_info'):
             token_info = data_summary['tokenization_info']
-            prompt += f"""
-Tokenization Summary:
-- Total tokens generated: {token_info['global_stats']['total_tokens_generated']:,}
-- Unique tokens: {token_info['global_stats']['total_unique_tokens']:,}
-- Average tokens per column: {token_info['global_stats']['average_tokens_per_column']:.1f}
-- Token diversity score: {token_info['global_stats']['average_diversity_per_column']:.2f}
+            prompt += f"""Tokenization: {token_info['global_stats']['total_tokens_generated']:,} tokens generated, {token_info['global_stats']['total_unique_tokens']:,} unique, diversity: {token_info['global_stats']['average_diversity_per_column']:.2f}
 
 """
 
-        prompt += "Detailed Column Analysis:\n"
-
+        # Add column details (truncated)
+        prompt += "Key Columns:\n"
+        column_count = 0
         for col, details in data_summary['column_details'].items():
-            prompt += f"\n{col}:"
-            prompt += f"\n  - Type: {details['data_type']}"
-            prompt += f"\n  - Unique values: {details['unique_count']}"
+            if column_count >= 15:  # Limit to prevent overflow
+                prompt += f"... and {len(data_summary['column_details']) - column_count} more columns\n"
+                break
+
+            prompt += f"\n{col} ({details['data_type']}): {details['unique_count']} unique"
 
             if 'min' in details:
-                prompt += f"\n  - Range: {details['min']} to {details['max']}"
-                prompt += f"\n  - Mean: {details['mean']:.2f}"
+                prompt += f", range: {details['min']:.1f}-{details['max']:.1f}"
+            elif 'top_values' in details:
+                top_vals = list(details['top_values'].keys())[:2]
+                prompt += f", top: {', '.join(map(str, top_vals))}"
 
-            if 'top_values' in details:
-                top_vals = list(details['top_values'].keys())[:3]
-                prompt += f"\n  - Common values: {', '.join(map(str, top_vals))}"
-
-            # Add tokenization details
+            # Add tokenization info if available (brief)
             if 'tokenization' in details:
                 token_stats = details['tokenization']
-                prompt += f"\n  - Tokens generated: {token_stats['total_tokens']}"
-                prompt += f"\n  - Unique tokens: {token_stats['unique_tokens']}"
-                prompt += f"\n  - Token diversity: {token_stats['token_diversity']:.2f}"
-                if token_stats['most_common']:
-                    top_tokens = [f"{token}({count})" for token, count in token_stats['most_common'][:3]]
-                    prompt += f"\n  - Top tokens: {', '.join(top_tokens)}"
+                prompt += f", {token_stats['total_tokens']} tokens"
+
+            column_count += 1
 
         prompt += """
 
-Enhanced Capabilities with Tokenization:
-1. Each data point has been extensively tokenized to capture semantic meaning, context, and patterns
-2. Numeric values include magnitude, sign, and contextual tokens
-3. Dates include temporal context (seasons, decades, relative time)
-4. Categories include frequency context and semantic tokenization
-5. All tokens are searchable and queryable for complex natural language questions
+Capabilities: Rich tokenization enables semantic analysis, pattern recognition, and contextual insights.
+Instructions: Provide specific, actionable insights based on the data structure and tokenization patterns."""
 
-When answering questions:
-1. Leverage the rich tokenization to provide deeper insights
-2. Use token patterns to identify trends and correlations
-3. Reference token diversity scores to assess data complexity
-4. Suggest analyses based on available token types
-5. Provide specific, actionable insights based on the tokenized structure
-6. Mention relevant token patterns when explaining findings
-"""
+        # Ensure system prompt fits within reasonable limits
+        max_system_tokens = int(self.max_input_tokens * 0.6)  # Reserve 60% for system prompt
+        return self.truncate_text(prompt, max_system_tokens)
 
-        return prompt
+    def prepare_context_data(self, sample_data: str = None, tokenized_sample: str = None, stats_context: str = None) -> str:
+        """Prepare and optimize context data to fit within token limits"""
+        context_parts = []
 
-    def query_data(self, question: str, data_summary: Dict, sample_data: str = None, tokenized_sample: str = None) -> str:
-        """Process natural language query about the tokenized data"""
+        if sample_data:
+            context_parts.append(f"Sample Data:\n{sample_data}")
+
+        if tokenized_sample:
+            context_parts.append(f"Token Sample:\n{tokenized_sample}")
+
+        if stats_context:
+            context_parts.append(f"Statistics:\n{stats_context}")
+
+        # Combine all context
+        full_context = "\n\n".join(context_parts)
+
+        # Reserve space for context (40% of input tokens)
+        max_context_tokens = int(self.max_input_tokens * 0.4)
+
+        return self.truncate_text(full_context, max_context_tokens)
+
+    def query_data(self, question: str, data_summary: Dict, sample_data: str = None, tokenized_sample: str = None, stats_context: str = None) -> str:
+        """Process natural language query with smart token management"""
+
+        # Generate optimized system prompt
         system_prompt = self.generate_system_prompt(data_summary, include_tokenization=True)
 
+        # Prepare and optimize context data
+        context_data = self.prepare_context_data(sample_data, tokenized_sample, stats_context)
+
+        # Create user message
         user_message = f"Question: {question}"
-        if sample_data:
-            user_message += f"\n\nSample original data (first 5 rows):\n{sample_data}"
-        if tokenized_sample:
-            user_message += f"\n\nSample tokenized data (showing token patterns):\n{tokenized_sample}"
+        if context_data:
+            user_message += f"\n\n{context_data}"
+
+        # Final token check and adjustment
+        system_tokens = self.count_tokens(system_prompt)
+        user_tokens = self.count_tokens(user_message)
+
+        total_input_tokens = system_tokens + user_tokens
+
+        if total_input_tokens > self.max_input_tokens:
+            # Reduce context data further if needed
+            excess_tokens = total_input_tokens - self.max_input_tokens
+            if context_data:
+                current_context_tokens = self.count_tokens(context_data)
+                reduced_context_tokens = max(100, current_context_tokens - excess_tokens)
+                context_data = self.truncate_text(context_data, reduced_context_tokens)
+                user_message = f"Question: {question}\n\n{context_data}"
+
+        # Adjust completion tokens based on remaining context
+        final_input_tokens = self.count_tokens(system_prompt) + self.count_tokens(user_message)
+        available_tokens = self.max_context_length - final_input_tokens - 100  # safety buffer
+        completion_tokens = min(self.max_completion_tokens, max(200, available_tokens))
 
         try:
             response = self.client.chat.completions.create(
@@ -530,14 +614,25 @@ When answering questions:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                max_tokens=1500,
+                max_tokens=completion_tokens,
                 temperature=0.7
             )
 
             return response.choices[0].message.content
 
         except Exception as e:
-            return f"Error processing query: {str(e)}"
+            error_msg = str(e)
+            if "maximum context length" in error_msg.lower():
+                return """I apologize, but the dataset is too large to analyze in a single query.
+
+Please try:
+1. Ask more specific questions about particular columns
+2. Use the token search feature to find specific patterns
+3. Focus on summary statistics rather than detailed analysis
+
+The dataset has been successfully processed and tokenized - you can explore it using more targeted queries."""
+            else:
+                return f"Error processing query: {error_msg}"
 
 def main():
     st.title("📊 Advanced CSV Natural Language Query App")
@@ -1088,12 +1183,12 @@ Tokenization Statistics:
 """
 
                         # Get AI response with enhanced context
-                        enhanced_question = question + stats_context
                         response = st.session_state.openai_processor.query_data(
-                            enhanced_question,
+                            question,
                             st.session_state.processor.data_summary,
                             sample_data,
-                            tokenized_sample
+                            tokenized_sample,
+                            stats_context
                         )
 
                         st.subheader("🎯 Comprehensive Analysis Results")
