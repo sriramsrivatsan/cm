@@ -10,6 +10,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from collections import Counter
 import nltk
+nltk.download('punkt_tab')
+nltk.download('punkt')
+nltk.download('wordnet')
+nltk.download('omw-1.4')
 from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, WordNetLemmatizer
@@ -408,26 +412,30 @@ class CSVProcessor:
                 "unique_count": int(self.processed_df[col].nunique())
             }
 
-            if self.processed_df[col].dtype in ['int64', 'float64']:
-                col_info.update({
-                    "min": float(self.processed_df[col].min()),
-                    "max": float(self.processed_df[col].max()),
-                    "mean": float(self.processed_df[col].mean()),
-                    "median": float(self.processed_df[col].median())
-                })
+            try:
+                if self.processed_df[col].dtype in ['int64', 'float64']:
+                    col_info.update({
+                        "min": float(self.processed_df[col].min()),
+                        "max": float(self.processed_df[col].max()),
+                        "mean": float(self.processed_df[col].mean()),
+                        "median": float(self.processed_df[col].median())
+                    })
 
-                # Add tokenization info if available
-                if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
-                    col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
+                    # Add tokenization info if available
+                    if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
+                        col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
 
-            elif self.processed_df[col].dtype == 'object':
-                # Get top 5 most common values
-                top_values = self.processed_df[col].value_counts().head(5)
-                col_info["top_values"] = top_values.to_dict()
+                elif self.processed_df[col].dtype == 'object':
+                    # Get top 5 most common values
+                    top_values = self.processed_df[col].value_counts().head(5)
+                    col_info["top_values"] = {str(k): int(v) for k, v in top_values.to_dict().items()}
 
-                # Add tokenization info if available
-                if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
-                    col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
+                    # Add tokenization info if available
+                    if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
+                        col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
+            except Exception as e:
+                st.warning(f"Error processing column {col}: {str(e)}")
+                continue
 
             summary["column_details"][col] = col_info
 
@@ -648,7 +656,9 @@ def main():
 
                     col1, col2 = st.columns(2)
                     with col1:
-                        fig_dtype = px.pie(values=dtype_counts.values, names=dtype_counts.index,
+                        # Convert dtype names to strings to avoid JSON serialization issues
+                        dtype_names = [str(dtype) for dtype in dtype_counts.index]
+                        fig_dtype = px.pie(values=dtype_counts.values, names=dtype_names,
                                           title="Column Data Types")
                         st.plotly_chart(fig_dtype, use_container_width=True)
 
@@ -656,7 +666,7 @@ def main():
                         st.write("**Data Type Breakdown:**")
                         for dtype, count in dtype_counts.items():
                             percentage = (count / len(st.session_state.processor.processed_df.columns)) * 100
-                            st.write(f"• {dtype}: {count} columns ({percentage:.1f}%)")
+                            st.write(f"• {str(dtype)}: {count} columns ({percentage:.1f}%)")
 
                     # Dataset quality metrics
                     st.subheader("Data Quality Metrics")
@@ -798,17 +808,21 @@ def main():
                                 matrix_data.append(row)
 
                             if matrix_data:
-                                heatmap_df = pd.DataFrame(matrix_data, columns=['Token'] + columns)
-                                heatmap_df = heatmap_df.set_index('Token')
+                                try:
+                                    heatmap_df = pd.DataFrame(matrix_data, columns=['Token'] + columns)
+                                    heatmap_df = heatmap_df.set_index('Token')
 
-                                fig_heatmap = px.imshow(heatmap_df.values,
-                                                      x=heatmap_df.columns,
-                                                      y=heatmap_df.index,
-                                                      title="Token Frequency Across Columns",
-                                                      color_continuous_scale='blues',
-                                                      aspect='auto')
-                                fig_heatmap.update_layout(height=600)
-                                st.plotly_chart(fig_heatmap, use_container_width=True)
+                                    fig_heatmap = px.imshow(heatmap_df.values,
+                                                          x=heatmap_df.columns.tolist(),
+                                                          y=heatmap_df.index.tolist(),
+                                                          title="Token Frequency Across Columns",
+                                                          color_continuous_scale='blues',
+                                                          aspect='auto')
+                                    fig_heatmap.update_layout(height=600)
+                                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                                except Exception as e:
+                                    st.error(f"Error creating token frequency heatmap: {str(e)}")
+                                    st.write("Token frequency data available but visualization failed.")
 
                 with tab3:
                     st.subheader("Data Distribution Analysis")
@@ -827,13 +841,13 @@ def main():
                             col1, col2 = st.columns(2)
 
                             with col1:
-                                fig_hist = px.histogram(st.session_state.processor.processed_df, x=col,
-                                                      title=f"Distribution of {col}")
+                                # Convert to list to avoid dtype serialization issues
+                                data_values = st.session_state.processor.processed_df[col].dropna().tolist()
+                                fig_hist = px.histogram(x=data_values, title=f"Distribution of {col}")
                                 st.plotly_chart(fig_hist, use_container_width=True)
 
                             with col2:
-                                fig_box = px.box(st.session_state.processor.processed_df, y=col,
-                                               title=f"Box Plot of {col}")
+                                fig_box = px.box(y=data_values, title=f"Box Plot of {col}")
                                 st.plotly_chart(fig_box, use_container_width=True)
 
                     # Categorical columns analysis
@@ -848,13 +862,16 @@ def main():
                                 col1, col2 = st.columns(2)
 
                                 with col1:
-                                    fig_bar = px.bar(x=value_counts.index, y=value_counts.values,
+                                    # Convert to lists for plotly compatibility
+                                    value_list = value_counts.index.tolist()
+                                    count_list = value_counts.values.tolist()
+                                    fig_bar = px.bar(x=value_list, y=count_list,
                                                    title=f"Top Values in {col}")
                                     fig_bar.update_xaxis(tickangle=45)
                                     st.plotly_chart(fig_bar, use_container_width=True)
 
                                 with col2:
-                                    fig_pie = px.pie(values=value_counts.values, names=value_counts.index,
+                                    fig_pie = px.pie(values=count_list, names=value_list,
                                                    title=f"Distribution of {col}")
                                     st.plotly_chart(fig_pie, use_container_width=True)
                             else:
@@ -936,7 +953,8 @@ def main():
                                 st.write(f"• Outliers: {len(outliers)} ({len(outliers)/len(col_data)*100:.1f}%)")
 
                             # Distribution plots
-                            fig_hist = px.histogram(col_data, title=f"Distribution of {selected_column}",
+                            col_values = col_data.dropna().tolist()
+                            fig_hist = px.histogram(x=col_values, title=f"Distribution of {selected_column}",
                                                   marginal="box")
                             st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -958,7 +976,9 @@ def main():
                                 st.write(f"• Mode frequency: {value_counts.iloc[0]/len(col_data)*100:.1f}%")
 
                             if len(value_counts) <= 20:
-                                fig_bar = px.bar(x=value_counts.index, y=value_counts.values,
+                                value_list = value_counts.index.tolist()
+                                count_list = value_counts.values.tolist()
+                                fig_bar = px.bar(x=value_list, y=count_list,
                                                title=f"Value Distribution in {selected_column}")
                                 fig_bar.update_xaxis(tickangle=45)
                                 st.plotly_chart(fig_bar, use_container_width=True)
@@ -1275,12 +1295,25 @@ Tokenization Statistics:
                     st.dataframe(quality_df, use_container_width=True)
 
                     # Quality visualization
-                    fig_quality = px.bar(quality_df, x='Column', y='Quality Score',
+                    quality_scores = []
+                    column_names = []
+                    for item in quality_data:
+                        # Extract numeric value from quality score string
+                        score_str = item['Quality Score'].replace('/100', '')
+                        try:
+                            quality_scores.append(float(score_str))
+                            column_names.append(item['Column'])
+                        except ValueError:
+                            quality_scores.append(0.0)
+                            column_names.append(item['Column'])
+
+                    fig_quality = px.bar(x=column_names, y=quality_scores,
                                         title="Data Quality Score by Column",
-                                        color='Quality Score',
+                                        labels={'x': 'Column', 'y': 'Quality Score'},
+                                        color=quality_scores,
                                         color_continuous_scale='RdYlGn')
                     fig_quality.update_xaxis(tickangle=45)
-                    fig_quality.update_traces(texttemplate='%{y}', textposition='outside')
+                    fig_quality.update_traces(texttemplate='%{y:.1f}', textposition='outside')
                     st.plotly_chart(fig_quality, use_container_width=True)
 
                 with dashboard_tab3:
@@ -1294,12 +1327,18 @@ Tokenization Statistics:
                         corr_matrix = st.session_state.processor.processed_df[numeric_cols].corr()
 
                         # Correlation heatmap
-                        fig_corr = px.imshow(corr_matrix,
-                                           title="Correlation Matrix of Numeric Variables",
-                                           color_continuous_scale='RdBu',
-                                           aspect='auto')
-                        fig_corr.update_layout(height=600)
-                        st.plotly_chart(fig_corr, use_container_width=True)
+                        try:
+                            fig_corr = px.imshow(corr_matrix.values,
+                                               x=corr_matrix.columns.tolist(),
+                                               y=corr_matrix.index.tolist(),
+                                               title="Correlation Matrix of Numeric Variables",
+                                               color_continuous_scale='RdBu',
+                                               aspect='auto')
+                            fig_corr.update_layout(height=600)
+                            st.plotly_chart(fig_corr, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error creating correlation heatmap: {str(e)}")
+                            st.dataframe(corr_matrix)
 
                         # Strong correlations
                         st.write("### Strong Correlations (|r| > 0.7)")
@@ -1391,7 +1430,7 @@ Tokenization Statistics:
                         report_sections.append("\n## 🏷️ Data Types Distribution")
                         for dtype, count in dtype_counts.items():
                             percentage = (count / len(st.session_state.processor.processed_df.columns)) * 100
-                            report_sections.append(f"- **{dtype}**: {count} columns ({percentage:.1f}%)")
+                            report_sections.append(f"- **{str(dtype)}**: {count} columns ({percentage:.1f}%)")
 
                         # Tokenization summary
                         if st.session_state.processor.tokenization_summary:
@@ -1508,7 +1547,8 @@ Tokenization Statistics:
                                     st.write(f"- Token diversity: {col_tokens['token_diversity']:.3f}")
 
                                     # Show distribution with token context
-                                    fig = px.histogram(df, x=col, title=f"Distribution of {col} (with {col_tokens['unique_tokens']} unique tokens)")
+                                    col_values = df[col].dropna().tolist()
+                                    fig = px.histogram(x=col_values, title=f"Distribution of {col} (with {col_tokens['unique_tokens']} unique tokens)")
                                     st.plotly_chart(fig, use_container_width=True)
 
                     # Categorical columns with enhanced token analysis
@@ -1527,8 +1567,10 @@ Tokenization Statistics:
                                     st.write(f"- Most common tokens: {', '.join([token for token, count in col_tokens['most_common'][:5]])}")
 
                             if df[col].nunique() <= 15:
-                                fig = px.bar(x=df[col].value_counts().index,
-                                           y=df[col].value_counts().values,
+                                value_counts = df[col].value_counts()
+                                value_list = value_counts.index.tolist()
+                                count_list = value_counts.values.tolist()
+                                fig = px.bar(x=value_list, y=count_list,
                                            title=f"Distribution of {col}")
                                 st.plotly_chart(fig, use_container_width=True)
 
