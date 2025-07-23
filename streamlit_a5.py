@@ -1,4 +1,191 @@
-import streamlit as st
+# Enhanced example questions
+                with st.expander("💡 Enhanced Example Questions"):
+                    st.markdown("""
+                    **Dataset Statistics & Overview:**
+                    - What are the key statistical insights from this dataset?
+                    - Which columns have the highest data quality and why?
+                    - How does the tokenization enhance understanding of data patterns?
+                    - What is the distribution of data types and what does it suggest about the dataset?
+
+                    **Tokenization-Based Analysis:**
+                    - Which columns have the highest token diversity and what insights does this provide?
+                    - What are the most frequent semantic tokens and what patterns do they reveal?
+                    - How do token patterns correlate with data quality metrics?
+                    - What unique insights emerge from the token frequency analysis?
+
+                    **Advanced Pattern Recognition:**
+                    - Based on statistical analysis, what are the most important variables for analysis?
+                    - What hidden relationships are revealed through cross-column token analysis?
+                    - How do the data distribution patterns inform potential modeling approaches?
+                    - What anomalies or outliers are suggested by the statistical and token analysis?
+
+                    **Business Intelligence:**
+                    - What actionable insights can be derived from the comprehensive data statistics?
+                    - How should the statistical patterns influence data preprocessing decisions?
+                    - What do the token patterns suggest about the underlying business processes?
+                    """)
+
+                # Query input with statistics context
+                question = st.text_area("Ask a sophisticated question about your tokenized data and statistics:",
+                                       placeholder="e.g., Based on the statistical analysis and tokenization, what are the key drivers and patterns in this dataset?",
+                                       height=100)
+
+                if st.button("🔍 Analyze with Enhanced Tokenization & Statistics") and question:
+                    with st.spinner("Performing comprehensive analysis on tokenized data and statistics..."):
+                        # Prepare comprehensive context including statistics
+                        sample_data = st.session_state.processor.processed_df.head(3).to_string()
+
+                        # Prepare tokenized sample
+                        token_columns = [col for col in st.session_state.processor.tokenized_df.columns if col.endswith('_tokens')]
+                        if token_columns:
+                            tokenized_sample = st.session_state.processor.tokenized_df[token_columns].head(3).to_string()
+                        else:
+                            tokenized_sample = None
+
+                        # Add statistical context
+                        stats_context = ""
+                        if st.session_state.processor.tokenization_summary:
+                            stats_context = f"""
+
+Statistical Context:
+- Dataset Size: {len(st.session_state.processor.processed_df):,} rows × {len(st.session_state.processor.processed_df.columns)} columns
+- Memory Usage: {st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB
+- Missing Values: {st.session_state.processor.processed_df.isnull().sum().sum():,}
+- Data Completeness: {((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100:.2f}%
+
+Tokenization Statistics:
+- Total Tokens Generated: {st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']:,}
+- Unique Semantic Tokens: {st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens']:,}
+- Average Token Diversity: {st.session_state.processor.tokenization_summary['global_stats']['average_diversity_per_column']:.3f}
+- Token Compression Ratio: {(st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']) * 100:.1f}%
+"""
+
+                        # Get AI response with enhanced context
+                        enhanced_question = question + stats_context
+                        response = st.session_state.openai_processor.query_data(
+                            enhanced_question,
+                            st.session_state.processor.data_summary,
+                            sample_data,
+                            tokenized_sample
+                        )
+
+                        st.subheader("🎯 Comprehensive Analysis Results")
+                        st.write(response)
+
+                        # Add quick statistical insights
+                        if st.session_state.processor.tokenization_summary:
+                            with st.expander("📊 Related Statistical Insights"):
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.write("**Data Quality Indicators:**")
+                                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
+                                    st.write(f"• Data Completeness: {completeness:.2f}%")
+
+                                    # Calculate uniqueness scores
+                                    uniqueness_scores = []
+                                    for col in st.session_state.processor.processed_df.columns:
+                                        unique_pct = (st.session_state.processor.processed_df[col].nunique() / len(st.session_state.processor.processed_df)) * 100
+                                        uniqueness_scores.append(unique_pct)
+                                    avg_uniqueness = np.mean(uniqueness_scores)
+                                    st.write(f"• Average Uniqueness: {avg_uniqueness:.2f}%")
+
+                                    # Most diverse column
+                                    token_stats = st.session_state.processor.tokenization_summary['column_stats']
+                                    most_diverse = max(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                                    st.write(f"• Most Semantically Rich Column: {most_diverse}")
+
+                                with col2:
+                                    st.write("**Tokenization Insights:**")
+                                    token_ratio = st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated'] / st.session_state.processor.processed_df.size
+                                    st.write(f"• Tokens per Data Point: {token_ratio:.2f}")
+
+                                    semantic_richness = st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / len(token_stats)
+                                    st.write(f"• Semantic Richness Score: {semantic_richness:.1f}")
+
+                                    # Least diverse column
+                                    least_diverse = min(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                                    st.write(f"• Most Structured Column: {least_diverse}")
+
+                # Statistics Dashboard
+                st.header("📊 Interactive Statistics Dashboard")
+
+                dashboard_tab1, dashboard_tab2, dashboard_tab3 = st.tabs(["📈 Key Metrics", "🎯 Data Quality", "🔄 Correlations"])
+
+                with dashboard_tab1:
+                    st.subheader("Key Dataset Metrics")
+
+                    # Create a comprehensive metrics table
+                    metrics_data = []
+
+                    for col in st.session_state.processor.processed_df.columns:
+                        col_data = st.session_state.processor.processed_df[col]
+
+                        metric_row = {
+                            'Column': col,
+                            'Data Type': str(col_data.dtype),
+                            'Count': len(col_data),
+                            'Missing': col_data.isnull().sum(),
+                            'Missing %': f"{(col_data.isnull().sum() / len(col_data)) * 100:.1f}%",
+                            'Unique': col_data.nunique(),
+                            'Unique %': f"{(col_data.nunique() / len(col_data)) * 100:.1f}%"
+                        }
+
+                        # Add type-specific metrics
+                        if col_data.dtype in ['int64', 'float64']:
+                            metric_row.update({
+                                'Mean': f"{col_data.mean():.3f}",
+                                'Std': f"{col_data.std():.3f}",
+                                'Min': f"{col_data.min():.3f}",
+                                'Max': f"{col_data.max():.3f}"
+                            })
+                        else:
+                            mode_val = col_data.mode().iloc[0] if not col_data.mode().empty else 'N/A'
+                            metric_row.update({
+                                'Mode': str(mode_val)[:20] + '...' if len(str(mode_val)) > 20 else str(mode_val),
+                                'Mode Freq': col_data.value_counts().iloc[0] if not col_data.value_counts().empty else 0
+                            })
+
+                        # Add tokenization metrics if available
+                        if (st.session_state.processor.tokenization_summary and
+                            col in st.session_state.processor.tokenization_summary['column_stats']):
+                            token_stats = st.session_state.processor.tokenization_summary['column_stats'][col]
+                            metric_row.update({
+                                'Tokens': token_stats['total_tokens'],
+                                'Unique Tokens': token_stats['unique_tokens'],
+                                'Token Diversity': f"{token_stats['token_diversity']:.3f}"
+                            })
+
+                        metrics_data.append(metric_row)
+
+                    metrics_df = pd.DataFrame(metrics_data)
+                    st.dataframe(metrics_df, use_container_width=True, height=400)
+
+                    # Download metrics report
+                    csv_metrics = metrics_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Metrics Report",
+                        data=csv_metrics,
+                        file_name="dataset_metrics_report.csv",
+                        mime="text/csv"
+                    )
+
+                with dashboard_tab2:
+                    st.subheader("Data Quality Assessment")
+
+                    # Overall quality score
+                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
+
+                    # Calculate consistency score (based on data types and patterns)
+                    consistency_scores = []
+                    for col in st.session_state.processor.processed_df.columns:
+                        col_data = st.session_state.processor.processed_df[col]
+                        if col_data.dtype == 'object':
+                            # For object columns, consistency is based on pattern regularity
+                            if col_data.nunique() < len(col_data) * 0.1:  # Low cardinality suggests consistent categories
+                                consistency_scores.append(0.9)
+                            else:
+                                consistency_scores.append(0.6import streamlit as st
 import pandas as pd
 import numpy as np
 import openai
@@ -621,21 +808,347 @@ def main():
 
             # Show processed and tokenized data info
             if st.session_state.processor.tokenized_df is not None:
-                st.header("📈 Enhanced Data Analysis")
+                st.header("📈 Enhanced Data Analysis & Statistics")
 
-                # Tokenization summary
-                if st.session_state.processor.tokenization_summary:
-                    token_summary = st.session_state.processor.tokenization_summary
+                # Create tabs for different views
+                tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏷️ Tokenization Stats", "📈 Data Distribution", "🔍 Column Analysis"])
 
+                with tab1:
+                    st.subheader("Dataset Overview")
+
+                    # Basic dataset statistics
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total Tokens", f"{token_summary['global_stats']['total_tokens_generated']:,}")
+                        st.metric("Total Rows", f"{len(st.session_state.processor.processed_df):,}")
                     with col2:
-                        st.metric("Unique Tokens", f"{token_summary['global_stats']['total_unique_tokens']:,}")
+                        st.metric("Total Columns", len(st.session_state.processor.processed_df.columns))
                     with col3:
-                        st.metric("Avg Tokens/Column", f"{token_summary['global_stats']['average_tokens_per_column']:.1f}")
+                        missing_values = st.session_state.processor.processed_df.isnull().sum().sum()
+                        st.metric("Missing Values", f"{missing_values:,}")
                     with col4:
-                        st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.2f}")
+                        memory_usage = st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2
+                        st.metric("Memory Usage", f"{memory_usage:.2f} MB")
+
+                    # Data type distribution
+                    st.subheader("Data Type Distribution")
+                    dtype_counts = st.session_state.processor.processed_df.dtypes.value_counts()
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        fig_dtype = px.pie(values=dtype_counts.values, names=dtype_counts.index,
+                                          title="Column Data Types")
+                        st.plotly_chart(fig_dtype, use_container_width=True)
+
+                    with col2:
+                        st.write("**Data Type Breakdown:**")
+                        for dtype, count in dtype_counts.items():
+                            percentage = (count / len(st.session_state.processor.processed_df.columns)) * 100
+                            st.write(f"• {dtype}: {count} columns ({percentage:.1f}%)")
+
+                    # Dataset quality metrics
+                    st.subheader("Data Quality Metrics")
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        completeness = ((st.session_state.processor.processed_df.size - missing_values) / st.session_state.processor.processed_df.size) * 100
+                        st.metric("Data Completeness", f"{completeness:.2f}%")
+
+                    with col2:
+                        # Calculate uniqueness (average percentage of unique values per column)
+                        uniqueness_scores = []
+                        for col in st.session_state.processor.processed_df.columns:
+                            unique_pct = (st.session_state.processor.processed_df[col].nunique() / len(st.session_state.processor.processed_df)) * 100
+                            uniqueness_scores.append(unique_pct)
+                        avg_uniqueness = np.mean(uniqueness_scores)
+                        st.metric("Avg Uniqueness", f"{avg_uniqueness:.2f}%")
+
+                    with col3:
+                        # Variability score (columns with more than 1 unique value)
+                        variable_cols = sum(1 for col in st.session_state.processor.processed_df.columns
+                                          if st.session_state.processor.processed_df[col].nunique() > 1)
+                        variability = (variable_cols / len(st.session_state.processor.processed_df.columns)) * 100
+                        st.metric("Data Variability", f"{variability:.2f}%")
+
+                with tab2:
+                    st.subheader("Comprehensive Tokenization Statistics")
+
+                    if st.session_state.processor.tokenization_summary:
+                        token_summary = st.session_state.processor.tokenization_summary
+
+                        # Global tokenization metrics
+                        st.write("### 🌐 Global Tokenization Metrics")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Tokens", f"{token_summary['global_stats']['total_tokens_generated']:,}")
+                        with col2:
+                            st.metric("Unique Tokens", f"{token_summary['global_stats']['total_unique_tokens']:,}")
+                        with col3:
+                            st.metric("Avg Tokens/Column", f"{token_summary['global_stats']['average_tokens_per_column']:.1f}")
+                        with col4:
+                            st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.2f}")
+
+                        # Token efficiency metrics
+                        st.write("### ⚡ Tokenization Efficiency")
+                        col1, col2, col3 = st.columns(3)
+
+                        with col1:
+                            # Token-to-data ratio
+                            total_data_points = st.session_state.processor.processed_df.size
+                            token_ratio = token_summary['global_stats']['total_tokens_generated'] / total_data_points
+                            st.metric("Tokens per Data Point", f"{token_ratio:.2f}")
+
+                        with col2:
+                            # Compression ratio (unique tokens vs total tokens)
+                            compression = (token_summary['global_stats']['total_unique_tokens'] /
+                                         token_summary['global_stats']['total_tokens_generated']) * 100
+                            st.metric("Token Compression", f"{compression:.1f}%")
+
+                        with col3:
+                            # Semantic richness (unique tokens per column)
+                            semantic_richness = token_summary['global_stats']['total_unique_tokens'] / len(token_summary['column_stats'])
+                            st.metric("Semantic Richness", f"{semantic_richness:.1f}")
+
+                        # Column-wise tokenization breakdown
+                        st.write("### 📋 Column-wise Tokenization Breakdown")
+
+                        # Create a detailed dataframe for column statistics
+                        column_stats_data = []
+                        for col, stats in token_summary['column_stats'].items():
+                            column_stats_data.append({
+                                'Column': col,
+                                'Data Type': str(st.session_state.processor.processed_df[col].dtype),
+                                'Total Tokens': stats['total_tokens'],
+                                'Unique Tokens': stats['unique_tokens'],
+                                'Diversity Score': f"{stats['token_diversity']:.3f}",
+                                'Top Token': stats['most_common'][0][0] if stats['most_common'] else 'N/A',
+                                'Token Frequency': stats['most_common'][0][1] if stats['most_common'] else 0
+                            })
+
+                        stats_df = pd.DataFrame(column_stats_data)
+                        st.dataframe(stats_df, use_container_width=True)
+
+                        # Tokenization distribution charts
+                        st.write("### 📊 Tokenization Distribution Analysis")
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            # Token count distribution
+                            columns = list(token_summary['column_stats'].keys())
+                            token_counts = [token_summary['column_stats'][col]['total_tokens'] for col in columns]
+
+                            fig_tokens = px.bar(x=columns, y=token_counts,
+                                              title="Token Count by Column",
+                                              labels={'x': 'Columns', 'y': 'Token Count'},
+                                              color=token_counts,
+                                              color_continuous_scale='blues')
+                            fig_tokens.update_xaxis(tickangle=45)
+                            st.plotly_chart(fig_tokens, use_container_width=True)
+
+                        with col2:
+                            # Diversity score distribution
+                            diversity_scores = [token_summary['column_stats'][col]['token_diversity'] for col in columns]
+
+                            fig_diversity = px.bar(x=columns, y=diversity_scores,
+                                                 title="Token Diversity by Column",
+                                                 labels={'x': 'Columns', 'y': 'Diversity Score'},
+                                                 color=diversity_scores,
+                                                 color_continuous_scale='viridis')
+                            fig_diversity.update_xaxis(tickangle=45)
+                            st.plotly_chart(fig_diversity, use_container_width=True)
+
+                        # Token frequency heatmap
+                        st.write("### 🔥 Token Frequency Heatmap")
+
+                        # Create a matrix of top tokens per column
+                        top_tokens_matrix = []
+                        all_top_tokens = set()
+
+                        # Collect all top tokens
+                        for col, stats in token_summary['column_stats'].items():
+                            for token, count in stats['most_common'][:10]:
+                                all_top_tokens.add(token)
+
+                        # Create frequency matrix
+                        if all_top_tokens:
+                            matrix_data = []
+                            for token in list(all_top_tokens)[:20]:  # Limit to top 20 for readability
+                                row = [token]
+                                for col in columns:
+                                    # Find token frequency in this column
+                                    token_freq = 0
+                                    for t, count in token_summary['column_stats'][col]['most_common']:
+                                        if t == token:
+                                            token_freq = count
+                                            break
+                                    row.append(token_freq)
+                                matrix_data.append(row)
+
+                            if matrix_data:
+                                heatmap_df = pd.DataFrame(matrix_data, columns=['Token'] + columns)
+                                heatmap_df = heatmap_df.set_index('Token')
+
+                                fig_heatmap = px.imshow(heatmap_df.values,
+                                                      x=heatmap_df.columns,
+                                                      y=heatmap_df.index,
+                                                      title="Token Frequency Across Columns",
+                                                      color_continuous_scale='blues',
+                                                      aspect='auto')
+                                fig_heatmap.update_layout(height=600)
+                                st.plotly_chart(fig_heatmap, use_container_width=True)
+
+                with tab3:
+                    st.subheader("Data Distribution Analysis")
+
+                    # Numeric columns analysis
+                    numeric_cols = st.session_state.processor.processed_df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 0:
+                        st.write("### 📊 Numeric Columns Distribution")
+
+                        # Statistical summary
+                        st.write("**Statistical Summary:**")
+                        st.dataframe(st.session_state.processor.processed_df[numeric_cols].describe())
+
+                        # Distribution plots for top numeric columns
+                        for i, col in enumerate(numeric_cols[:4]):  # Show first 4 numeric columns
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                fig_hist = px.histogram(st.session_state.processor.processed_df, x=col,
+                                                      title=f"Distribution of {col}")
+                                st.plotly_chart(fig_hist, use_container_width=True)
+
+                            with col2:
+                                fig_box = px.box(st.session_state.processor.processed_df, y=col,
+                                               title=f"Box Plot of {col}")
+                                st.plotly_chart(fig_box, use_container_width=True)
+
+                    # Categorical columns analysis
+                    cat_cols = st.session_state.processor.processed_df.select_dtypes(include=['object']).columns
+                    if len(cat_cols) > 0:
+                        st.write("### 🏷️ Categorical Columns Distribution")
+
+                        for col in cat_cols[:4]:  # Show first 4 categorical columns
+                            if st.session_state.processor.processed_df[col].nunique() <= 20:
+                                value_counts = st.session_state.processor.processed_df[col].value_counts().head(10)
+
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    fig_bar = px.bar(x=value_counts.index, y=value_counts.values,
+                                                   title=f"Top Values in {col}")
+                                    fig_bar.update_xaxis(tickangle=45)
+                                    st.plotly_chart(fig_bar, use_container_width=True)
+
+                                with col2:
+                                    fig_pie = px.pie(values=value_counts.values, names=value_counts.index,
+                                                   title=f"Distribution of {col}")
+                                    st.plotly_chart(fig_pie, use_container_width=True)
+                            else:
+                                st.write(f"**{col}**: {st.session_state.processor.processed_df[col].nunique()} unique values (too many to display)")
+
+                with tab4:
+                    st.subheader("Detailed Column Analysis")
+
+                    # Column selector
+                    selected_column = st.selectbox("Select a column for detailed analysis:",
+                                                 st.session_state.processor.processed_df.columns)
+
+                    if selected_column:
+                        col_data = st.session_state.processor.processed_df[selected_column]
+
+                        # Basic column info
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Data Type", str(col_data.dtype))
+                        with col2:
+                            st.metric("Unique Values", col_data.nunique())
+                        with col3:
+                            st.metric("Missing Values", col_data.isnull().sum())
+                        with col4:
+                            st.metric("Memory Usage", f"{col_data.memory_usage(deep=True) / 1024:.2f} KB")
+
+                        # Tokenization info for selected column
+                        if (st.session_state.processor.tokenization_summary and
+                            selected_column in st.session_state.processor.tokenization_summary['column_stats']):
+
+                            token_stats = st.session_state.processor.tokenization_summary['column_stats'][selected_column]
+
+                            st.write("### 🏷️ Tokenization Details")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Tokens", token_stats['total_tokens'])
+                            with col2:
+                                st.metric("Unique Tokens", token_stats['unique_tokens'])
+                            with col3:
+                                st.metric("Diversity Score", f"{token_stats['token_diversity']:.3f}")
+
+                            # Most common tokens
+                            st.write("**Most Common Tokens:**")
+                            token_df = pd.DataFrame(token_stats['most_common'][:15], columns=['Token', 'Frequency'])
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.dataframe(token_df)
+                            with col2:
+                                fig_tokens = px.bar(token_df, x='Token', y='Frequency',
+                                                  title=f"Top Tokens in {selected_column}")
+                                fig_tokens.update_xaxis(tickangle=45)
+                                st.plotly_chart(fig_tokens, use_container_width=True)
+
+                        # Data distribution for selected column
+                        st.write("### 📈 Data Distribution")
+
+                        if col_data.dtype in ['int64', 'float64']:
+                            # Numeric column analysis
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.write("**Statistical Summary:**")
+                                stats = col_data.describe()
+                                for stat, value in stats.items():
+                                    st.write(f"• {stat}: {value:.3f}")
+
+                            with col2:
+                                # Quartile information
+                                q1 = col_data.quantile(0.25)
+                                q3 = col_data.quantile(0.75)
+                                iqr = q3 - q1
+                                outliers = col_data[(col_data < q1 - 1.5*iqr) | (col_data > q3 + 1.5*iqr)]
+
+                                st.write("**Quartile Analysis:**")
+                                st.write(f"• Q1: {q1:.3f}")
+                                st.write(f"• Q3: {q3:.3f}")
+                                st.write(f"• IQR: {iqr:.3f}")
+                                st.write(f"• Outliers: {len(outliers)} ({len(outliers)/len(col_data)*100:.1f}%)")
+
+                            # Distribution plots
+                            fig_hist = px.histogram(col_data, title=f"Distribution of {selected_column}",
+                                                  marginal="box")
+                            st.plotly_chart(fig_hist, use_container_width=True)
+
+                        else:
+                            # Categorical column analysis
+                            value_counts = col_data.value_counts()
+
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write("**Value Frequency:**")
+                                for value, count in value_counts.head(10).items():
+                                    percentage = (count / len(col_data)) * 100
+                                    st.write(f"• {value}: {count} ({percentage:.1f}%)")
+
+                            with col2:
+                                st.write("**Category Statistics:**")
+                                st.write(f"• Most common: {value_counts.index[0]} ({value_counts.iloc[0]} occurrences)")
+                                st.write(f"• Least common: {value_counts.index[-1]} ({value_counts.iloc[-1]} occurrences)")
+                                st.write(f"• Mode frequency: {value_counts.iloc[0]/len(col_data)*100:.1f}%")
+
+                            if len(value_counts) <= 20:
+                                fig_bar = px.bar(x=value_counts.index, y=value_counts.values,
+                                               title=f"Value Distribution in {selected_column}")
+                                fig_bar.update_xaxis(tickangle=45)
+                                st.plotly_chart(fig_bar, use_container_width=True)
 
                 # Show tokenized data sample
                 with st.expander("🔍 View Tokenized Data Sample"):
