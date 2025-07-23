@@ -1,191 +1,4 @@
-# Enhanced example questions
-                with st.expander("💡 Enhanced Example Questions"):
-                    st.markdown("""
-                    **Dataset Statistics & Overview:**
-                    - What are the key statistical insights from this dataset?
-                    - Which columns have the highest data quality and why?
-                    - How does the tokenization enhance understanding of data patterns?
-                    - What is the distribution of data types and what does it suggest about the dataset?
-
-                    **Tokenization-Based Analysis:**
-                    - Which columns have the highest token diversity and what insights does this provide?
-                    - What are the most frequent semantic tokens and what patterns do they reveal?
-                    - How do token patterns correlate with data quality metrics?
-                    - What unique insights emerge from the token frequency analysis?
-
-                    **Advanced Pattern Recognition:**
-                    - Based on statistical analysis, what are the most important variables for analysis?
-                    - What hidden relationships are revealed through cross-column token analysis?
-                    - How do the data distribution patterns inform potential modeling approaches?
-                    - What anomalies or outliers are suggested by the statistical and token analysis?
-
-                    **Business Intelligence:**
-                    - What actionable insights can be derived from the comprehensive data statistics?
-                    - How should the statistical patterns influence data preprocessing decisions?
-                    - What do the token patterns suggest about the underlying business processes?
-                    """)
-
-                # Query input with statistics context
-                question = st.text_area("Ask a sophisticated question about your tokenized data and statistics:",
-                                       placeholder="e.g., Based on the statistical analysis and tokenization, what are the key drivers and patterns in this dataset?",
-                                       height=100)
-
-                if st.button("🔍 Analyze with Enhanced Tokenization & Statistics") and question:
-                    with st.spinner("Performing comprehensive analysis on tokenized data and statistics..."):
-                        # Prepare comprehensive context including statistics
-                        sample_data = st.session_state.processor.processed_df.head(3).to_string()
-
-                        # Prepare tokenized sample
-                        token_columns = [col for col in st.session_state.processor.tokenized_df.columns if col.endswith('_tokens')]
-                        if token_columns:
-                            tokenized_sample = st.session_state.processor.tokenized_df[token_columns].head(3).to_string()
-                        else:
-                            tokenized_sample = None
-
-                        # Add statistical context
-                        stats_context = ""
-                        if st.session_state.processor.tokenization_summary:
-                            stats_context = f"""
-
-Statistical Context:
-- Dataset Size: {len(st.session_state.processor.processed_df):,} rows × {len(st.session_state.processor.processed_df.columns)} columns
-- Memory Usage: {st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB
-- Missing Values: {st.session_state.processor.processed_df.isnull().sum().sum():,}
-- Data Completeness: {((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100:.2f}%
-
-Tokenization Statistics:
-- Total Tokens Generated: {st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']:,}
-- Unique Semantic Tokens: {st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens']:,}
-- Average Token Diversity: {st.session_state.processor.tokenization_summary['global_stats']['average_diversity_per_column']:.3f}
-- Token Compression Ratio: {(st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']) * 100:.1f}%
-"""
-
-                        # Get AI response with enhanced context
-                        enhanced_question = question + stats_context
-                        response = st.session_state.openai_processor.query_data(
-                            enhanced_question,
-                            st.session_state.processor.data_summary,
-                            sample_data,
-                            tokenized_sample
-                        )
-
-                        st.subheader("🎯 Comprehensive Analysis Results")
-                        st.write(response)
-
-                        # Add quick statistical insights
-                        if st.session_state.processor.tokenization_summary:
-                            with st.expander("📊 Related Statistical Insights"):
-                                col1, col2 = st.columns(2)
-
-                                with col1:
-                                    st.write("**Data Quality Indicators:**")
-                                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
-                                    st.write(f"• Data Completeness: {completeness:.2f}%")
-
-                                    # Calculate uniqueness scores
-                                    uniqueness_scores = []
-                                    for col in st.session_state.processor.processed_df.columns:
-                                        unique_pct = (st.session_state.processor.processed_df[col].nunique() / len(st.session_state.processor.processed_df)) * 100
-                                        uniqueness_scores.append(unique_pct)
-                                    avg_uniqueness = np.mean(uniqueness_scores)
-                                    st.write(f"• Average Uniqueness: {avg_uniqueness:.2f}%")
-
-                                    # Most diverse column
-                                    token_stats = st.session_state.processor.tokenization_summary['column_stats']
-                                    most_diverse = max(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
-                                    st.write(f"• Most Semantically Rich Column: {most_diverse}")
-
-                                with col2:
-                                    st.write("**Tokenization Insights:**")
-                                    token_ratio = st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated'] / st.session_state.processor.processed_df.size
-                                    st.write(f"• Tokens per Data Point: {token_ratio:.2f}")
-
-                                    semantic_richness = st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / len(token_stats)
-                                    st.write(f"• Semantic Richness Score: {semantic_richness:.1f}")
-
-                                    # Least diverse column
-                                    least_diverse = min(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
-                                    st.write(f"• Most Structured Column: {least_diverse}")
-
-                # Statistics Dashboard
-                st.header("📊 Interactive Statistics Dashboard")
-
-                dashboard_tab1, dashboard_tab2, dashboard_tab3 = st.tabs(["📈 Key Metrics", "🎯 Data Quality", "🔄 Correlations"])
-
-                with dashboard_tab1:
-                    st.subheader("Key Dataset Metrics")
-
-                    # Create a comprehensive metrics table
-                    metrics_data = []
-
-                    for col in st.session_state.processor.processed_df.columns:
-                        col_data = st.session_state.processor.processed_df[col]
-
-                        metric_row = {
-                            'Column': col,
-                            'Data Type': str(col_data.dtype),
-                            'Count': len(col_data),
-                            'Missing': col_data.isnull().sum(),
-                            'Missing %': f"{(col_data.isnull().sum() / len(col_data)) * 100:.1f}%",
-                            'Unique': col_data.nunique(),
-                            'Unique %': f"{(col_data.nunique() / len(col_data)) * 100:.1f}%"
-                        }
-
-                        # Add type-specific metrics
-                        if col_data.dtype in ['int64', 'float64']:
-                            metric_row.update({
-                                'Mean': f"{col_data.mean():.3f}",
-                                'Std': f"{col_data.std():.3f}",
-                                'Min': f"{col_data.min():.3f}",
-                                'Max': f"{col_data.max():.3f}"
-                            })
-                        else:
-                            mode_val = col_data.mode().iloc[0] if not col_data.mode().empty else 'N/A'
-                            metric_row.update({
-                                'Mode': str(mode_val)[:20] + '...' if len(str(mode_val)) > 20 else str(mode_val),
-                                'Mode Freq': col_data.value_counts().iloc[0] if not col_data.value_counts().empty else 0
-                            })
-
-                        # Add tokenization metrics if available
-                        if (st.session_state.processor.tokenization_summary and
-                            col in st.session_state.processor.tokenization_summary['column_stats']):
-                            token_stats = st.session_state.processor.tokenization_summary['column_stats'][col]
-                            metric_row.update({
-                                'Tokens': token_stats['total_tokens'],
-                                'Unique Tokens': token_stats['unique_tokens'],
-                                'Token Diversity': f"{token_stats['token_diversity']:.3f}"
-                            })
-
-                        metrics_data.append(metric_row)
-
-                    metrics_df = pd.DataFrame(metrics_data)
-                    st.dataframe(metrics_df, use_container_width=True, height=400)
-
-                    # Download metrics report
-                    csv_metrics = metrics_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Metrics Report",
-                        data=csv_metrics,
-                        file_name="dataset_metrics_report.csv",
-                        mime="text/csv"
-                    )
-
-                with dashboard_tab2:
-                    st.subheader("Data Quality Assessment")
-
-                    # Overall quality score
-                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
-
-                    # Calculate consistency score (based on data types and patterns)
-                    consistency_scores = []
-                    for col in st.session_state.processor.processed_df.columns:
-                        col_data = st.session_state.processor.processed_df[col]
-                        if col_data.dtype == 'object':
-                            # For object columns, consistency is based on pattern regularity
-                            if col_data.nunique() < len(col_data) * 0.1:  # Low cardinality suggests consistent categories
-                                consistency_scores.append(0.9)
-                            else:
-                                consistency_scores.append(0.6import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import openai
@@ -201,7 +14,7 @@ from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, WordNetLemmatizer
 from nltk.chunk import ne_chunk
-from nltik.tag import pos_tag
+from nltk.tag import pos_tag
 import string
 from datetime import datetime
 import warnings
@@ -1195,30 +1008,38 @@ def main():
                 # Enhanced example questions
                 with st.expander("💡 Enhanced Example Questions"):
                     st.markdown("""
-                    **Basic Analysis:**
-                    - What are the main patterns and insights in this tokenized dataset?
-                    - Which columns have the highest token diversity and what does that indicate?
-                    - Are there any interesting token patterns that suggest hidden relationships?
+                    **Dataset Statistics & Overview:**
+                    - What are the key statistical insights from this dataset?
+                    - Which columns have the highest data quality and why?
+                    - How does the tokenization enhance understanding of data patterns?
+                    - What is the distribution of data types and what does it suggest about the dataset?
 
-                    **Advanced Token-Based Queries:**
-                    - What semantic patterns emerge from the categorical tokenization?
-                    - How do the numeric token ranges correlate with other variables?
-                    - What temporal patterns are revealed through date tokenization?
-                    - Which tokens appear most frequently across different columns?
+                    **Tokenization-Based Analysis:**
+                    - Which columns have the highest token diversity and what insights does this provide?
+                    - What are the most frequent semantic tokens and what patterns do they reveal?
+                    - How do token patterns correlate with data quality metrics?
+                    - What unique insights emerge from the token frequency analysis?
 
-                    **Insight-Driven Questions:**
-                    - Based on token analysis, what are the key drivers in this dataset?
-                    - What unique insights does tokenization reveal that basic analysis might miss?
-                    - How can the token patterns inform business decisions or further analysis?
+                    **Advanced Pattern Recognition:**
+                    - Based on statistical analysis, what are the most important variables for analysis?
+                    - What hidden relationships are revealed through cross-column token analysis?
+                    - How do the data distribution patterns inform potential modeling approaches?
+                    - What anomalies or outliers are suggested by the statistical and token analysis?
+
+                    **Business Intelligence:**
+                    - What actionable insights can be derived from the comprehensive data statistics?
+                    - How should the statistical patterns influence data preprocessing decisions?
+                    - What do the token patterns suggest about the underlying business processes?
                     """)
 
-                # Query input
-                question = st.text_area("Ask a sophisticated question about your tokenized data:",
-                                       placeholder="e.g., What unique insights does the tokenization reveal about customer behavior patterns?")
+                # Query input with statistics context
+                question = st.text_area("Ask a sophisticated question about your tokenized data and statistics:",
+                                       placeholder="e.g., Based on the statistical analysis and tokenization, what are the key drivers and patterns in this dataset?",
+                                       height=100)
 
-                if st.button("🔍 Analyze with Enhanced Tokenization") and question:
-                    with st.spinner("Performing advanced analysis on tokenized data..."):
-                        # Prepare sample data for context
+                if st.button("🔍 Analyze with Enhanced Tokenization & Statistics") and question:
+                    with st.spinner("Performing comprehensive analysis on tokenized data and statistics..."):
+                        # Prepare comprehensive context including statistics
                         sample_data = st.session_state.processor.processed_df.head(3).to_string()
 
                         # Prepare tokenized sample
@@ -1228,16 +1049,401 @@ def main():
                         else:
                             tokenized_sample = None
 
-                        # Get AI response
+                        # Add statistical context
+                        stats_context = ""
+                        if st.session_state.processor.tokenization_summary:
+                            stats_context = f"""
+
+Statistical Context:
+- Dataset Size: {len(st.session_state.processor.processed_df):,} rows × {len(st.session_state.processor.processed_df.columns)} columns
+- Memory Usage: {st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB
+- Missing Values: {st.session_state.processor.processed_df.isnull().sum().sum():,}
+- Data Completeness: {((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100:.2f}%
+
+Tokenization Statistics:
+- Total Tokens Generated: {st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']:,}
+- Unique Semantic Tokens: {st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens']:,}
+- Average Token Diversity: {st.session_state.processor.tokenization_summary['global_stats']['average_diversity_per_column']:.3f}
+- Token Compression Ratio: {(st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated']) * 100:.1f}%
+"""
+
+                        # Get AI response with enhanced context
+                        enhanced_question = question + stats_context
                         response = st.session_state.openai_processor.query_data(
-                            question,
+                            enhanced_question,
                             st.session_state.processor.data_summary,
                             sample_data,
                             tokenized_sample
                         )
 
-                        st.subheader("🎯 Advanced Analysis Results")
+                        st.subheader("🎯 Comprehensive Analysis Results")
                         st.write(response)
+
+                        # Add quick statistical insights
+                        if st.session_state.processor.tokenization_summary:
+                            with st.expander("📊 Related Statistical Insights"):
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.write("**Data Quality Indicators:**")
+                                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
+                                    st.write(f"• Data Completeness: {completeness:.2f}%")
+
+                                    # Calculate uniqueness scores
+                                    uniqueness_scores = []
+                                    for col in st.session_state.processor.processed_df.columns:
+                                        unique_pct = (st.session_state.processor.processed_df[col].nunique() / len(st.session_state.processor.processed_df)) * 100
+                                        uniqueness_scores.append(unique_pct)
+                                    avg_uniqueness = np.mean(uniqueness_scores)
+                                    st.write(f"• Average Uniqueness: {avg_uniqueness:.2f}%")
+
+                                    # Most diverse column
+                                    token_stats = st.session_state.processor.tokenization_summary['column_stats']
+                                    most_diverse = max(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                                    st.write(f"• Most Semantically Rich Column: {most_diverse}")
+
+                                with col2:
+                                    st.write("**Tokenization Insights:**")
+                                    token_ratio = st.session_state.processor.tokenization_summary['global_stats']['total_tokens_generated'] / st.session_state.processor.processed_df.size
+                                    st.write(f"• Tokens per Data Point: {token_ratio:.2f}")
+
+                                    semantic_richness = st.session_state.processor.tokenization_summary['global_stats']['total_unique_tokens'] / len(token_stats)
+                                    st.write(f"• Semantic Richness Score: {semantic_richness:.1f}")
+
+                                    # Least diverse column
+                                    least_diverse = min(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                                    st.write(f"• Most Structured Column: {least_diverse}")
+
+                # Statistics Dashboard
+                st.header("📊 Interactive Statistics Dashboard")
+
+                dashboard_tab1, dashboard_tab2, dashboard_tab3 = st.tabs(["📈 Key Metrics", "🎯 Data Quality", "🔄 Correlations"])
+
+                with dashboard_tab1:
+                    st.subheader("Key Dataset Metrics")
+
+                    # Create a comprehensive metrics table
+                    metrics_data = []
+
+                    for col in st.session_state.processor.processed_df.columns:
+                        col_data = st.session_state.processor.processed_df[col]
+
+                        metric_row = {
+                            'Column': col,
+                            'Data Type': str(col_data.dtype),
+                            'Count': len(col_data),
+                            'Missing': col_data.isnull().sum(),
+                            'Missing %': f"{(col_data.isnull().sum() / len(col_data)) * 100:.1f}%",
+                            'Unique': col_data.nunique(),
+                            'Unique %': f"{(col_data.nunique() / len(col_data)) * 100:.1f}%"
+                        }
+
+                        # Add type-specific metrics
+                        if col_data.dtype in ['int64', 'float64']:
+                            metric_row.update({
+                                'Mean': f"{col_data.mean():.3f}",
+                                'Std': f"{col_data.std():.3f}",
+                                'Min': f"{col_data.min():.3f}",
+                                'Max': f"{col_data.max():.3f}"
+                            })
+                        else:
+                            mode_val = col_data.mode().iloc[0] if not col_data.mode().empty else 'N/A'
+                            metric_row.update({
+                                'Mode': str(mode_val)[:20] + '...' if len(str(mode_val)) > 20 else str(mode_val),
+                                'Mode Freq': col_data.value_counts().iloc[0] if not col_data.value_counts().empty else 0
+                            })
+
+                        # Add tokenization metrics if available
+                        if (st.session_state.processor.tokenization_summary and
+                            col in st.session_state.processor.tokenization_summary['column_stats']):
+                            token_stats = st.session_state.processor.tokenization_summary['column_stats'][col]
+                            metric_row.update({
+                                'Tokens': token_stats['total_tokens'],
+                                'Unique Tokens': token_stats['unique_tokens'],
+                                'Token Diversity': f"{token_stats['token_diversity']:.3f}"
+                            })
+
+                        metrics_data.append(metric_row)
+
+                    metrics_df = pd.DataFrame(metrics_data)
+                    st.dataframe(metrics_df, use_container_width=True, height=400)
+
+                    # Download metrics report
+                    csv_metrics = metrics_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Metrics Report",
+                        data=csv_metrics,
+                        file_name="dataset_metrics_report.csv",
+                        mime="text/csv"
+                    )
+
+                with dashboard_tab2:
+                    st.subheader("Data Quality Assessment")
+
+                    # Overall quality score
+                    completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
+
+                    # Calculate consistency score (based on data types and patterns)
+                    consistency_scores = []
+                    for col in st.session_state.processor.processed_df.columns:
+                        col_data = st.session_state.processor.processed_df[col]
+                        if col_data.dtype == 'object':
+                            # For object columns, consistency is based on pattern regularity
+                            if col_data.nunique() < len(col_data) * 0.1:  # Low cardinality suggests consistent categories
+                                consistency_scores.append(0.9)
+                            else:
+                                consistency_scores.append(0.6)
+                        else:
+                            # For numeric columns, consistency is based on outlier ratio
+                            q1 = col_data.quantile(0.25)
+                            q3 = col_data.quantile(0.75)
+                            iqr = q3 - q1
+                            outliers = col_data[(col_data < q1 - 1.5*iqr) | (col_data > q3 + 1.5*iqr)]
+                            outlier_ratio = len(outliers) / len(col_data)
+                            consistency_scores.append(max(0.3, 1.0 - outlier_ratio * 2))
+
+                    consistency = np.mean(consistency_scores) * 100
+
+                    # Uniqueness score
+                    uniqueness_scores = []
+                    for col in st.session_state.processor.processed_df.columns:
+                        unique_pct = st.session_state.processor.processed_df[col].nunique() / len(st.session_state.processor.processed_df)
+                        uniqueness_scores.append(unique_pct)
+                    uniqueness = np.mean(uniqueness_scores) * 100
+
+                    # Overall quality score
+                    overall_quality = (completeness * 0.4 + consistency * 0.4 + uniqueness * 0.2)
+
+                    # Display quality metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Overall Quality", f"{overall_quality:.1f}/100",
+                                 delta=f"{'Excellent' if overall_quality > 80 else 'Good' if overall_quality > 60 else 'Needs Improvement'}")
+                    with col2:
+                        st.metric("Completeness", f"{completeness:.1f}%")
+                    with col3:
+                        st.metric("Consistency", f"{consistency:.1f}%")
+                    with col4:
+                        st.metric("Uniqueness", f"{uniqueness:.1f}%")
+
+                    # Quality breakdown by column
+                    st.write("### Column-wise Quality Assessment")
+
+                    quality_data = []
+                    for col in st.session_state.processor.processed_df.columns:
+                        col_data = st.session_state.processor.processed_df[col]
+
+                        # Column completeness
+                        col_completeness = ((len(col_data) - col_data.isnull().sum()) / len(col_data)) * 100
+
+                        # Column uniqueness
+                        col_uniqueness = (col_data.nunique() / len(col_data)) * 100
+
+                        # Column consistency
+                        if col_data.dtype == 'object':
+                            # Check for consistent formatting/patterns
+                            if col_data.nunique() < len(col_data) * 0.1:
+                                col_consistency = 90
+                            elif col_data.nunique() < len(col_data) * 0.5:
+                                col_consistency = 70
+                            else:
+                                col_consistency = 50
+                        else:
+                            # Check for outliers
+                            q1 = col_data.quantile(0.25)
+                            q3 = col_data.quantile(0.75)
+                            iqr = q3 - q1
+                            outliers = col_data[(col_data < q1 - 1.5*iqr) | (col_data > q3 + 1.5*iqr)]
+                            outlier_ratio = len(outliers) / len(col_data)
+                            col_consistency = max(30, (1.0 - outlier_ratio * 2) * 100)
+
+                        # Overall column quality
+                        col_quality = (col_completeness * 0.4 + col_consistency * 0.4 + col_uniqueness * 0.2)
+
+                        quality_data.append({
+                            'Column': col,
+                            'Quality Score': f"{col_quality:.1f}/100",
+                            'Completeness': f"{col_completeness:.1f}%",
+                            'Consistency': f"{col_consistency:.1f}%",
+                            'Uniqueness': f"{col_uniqueness:.1f}%",
+                            'Issues': 'Low Completeness' if col_completeness < 90 else
+                                     'Low Consistency' if col_consistency < 70 else
+                                     'Low Uniqueness' if col_uniqueness < 10 else 'None'
+                        })
+
+                    quality_df = pd.DataFrame(quality_data)
+                    st.dataframe(quality_df, use_container_width=True)
+
+                    # Quality visualization
+                    fig_quality = px.bar(quality_df, x='Column', y='Quality Score',
+                                        title="Data Quality Score by Column",
+                                        color='Quality Score',
+                                        color_continuous_scale='RdYlGn')
+                    fig_quality.update_xaxis(tickangle=45)
+                    fig_quality.update_traces(texttemplate='%{y}', textposition='outside')
+                    st.plotly_chart(fig_quality, use_container_width=True)
+
+                with dashboard_tab3:
+                    st.subheader("Correlation & Relationship Analysis")
+
+                    # Numeric correlations
+                    numeric_cols = st.session_state.processor.processed_df.select_dtypes(include=[np.number]).columns
+                    if len(numeric_cols) > 1:
+                        st.write("### Numeric Variable Correlations")
+
+                        corr_matrix = st.session_state.processor.processed_df[numeric_cols].corr()
+
+                        # Correlation heatmap
+                        fig_corr = px.imshow(corr_matrix,
+                                           title="Correlation Matrix of Numeric Variables",
+                                           color_continuous_scale='RdBu',
+                                           aspect='auto')
+                        fig_corr.update_layout(height=600)
+                        st.plotly_chart(fig_corr, use_container_width=True)
+
+                        # Strong correlations
+                        st.write("### Strong Correlations (|r| > 0.7)")
+                        strong_corrs = []
+                        for i in range(len(corr_matrix.columns)):
+                            for j in range(i+1, len(corr_matrix.columns)):
+                                corr_val = corr_matrix.iloc[i, j]
+                                if abs(corr_val) > 0.7:
+                                    strong_corrs.append({
+                                        'Variable 1': corr_matrix.columns[i],
+                                        'Variable 2': corr_matrix.columns[j],
+                                        'Correlation': f"{corr_val:.3f}",
+                                        'Strength': 'Very Strong' if abs(corr_val) > 0.9 else 'Strong'
+                                    })
+
+                        if strong_corrs:
+                            strong_corr_df = pd.DataFrame(strong_corrs)
+                            st.dataframe(strong_corr_df, use_container_width=True)
+                        else:
+                            st.info("No strong correlations (|r| > 0.7) found between numeric variables.")
+
+                    # Token-based relationships
+                    if st.session_state.processor.tokenization_summary:
+                        st.write("### Token-based Relationship Insights")
+
+                        # Find columns with similar token patterns
+                        token_stats = st.session_state.processor.tokenization_summary['column_stats']
+
+                        # Calculate token diversity similarity
+                        diversity_similarities = []
+                        columns = list(token_stats.keys())
+
+                        for i in range(len(columns)):
+                            for j in range(i+1, len(columns)):
+                                col1, col2 = columns[i], columns[j]
+                                div1 = token_stats[col1]['token_diversity']
+                                div2 = token_stats[col2]['token_diversity']
+
+                                similarity = 1 - abs(div1 - div2)  # Simple similarity measure
+
+                                if similarity > 0.8:  # High similarity
+                                    diversity_similarities.append({
+                                        'Column 1': col1,
+                                        'Column 2': col2,
+                                        'Diversity Similarity': f"{similarity:.3f}",
+                                        'Column 1 Diversity': f"{div1:.3f}",
+                                        'Column 2 Diversity': f"{div2:.3f}"
+                                    })
+
+                        if diversity_similarities:
+                            st.write("**Columns with Similar Token Diversity Patterns:**")
+                            similarity_df = pd.DataFrame(diversity_similarities)
+                            st.dataframe(similarity_df, use_container_width=True)
+
+                        # Most vs least diverse columns comparison
+                        most_diverse = max(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                        least_diverse = min(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.info(f"**Most Semantically Complex:** {most_diverse}")
+                            st.write(f"Diversity Score: {token_stats[most_diverse]['token_diversity']:.3f}")
+                            st.write(f"Total Tokens: {token_stats[most_diverse]['total_tokens']:,}")
+                            st.write("*Best for: Complex pattern analysis, rich semantic queries*")
+
+                        with col2:
+                            st.info(f"**Most Structured/Predictable:** {least_diverse}")
+                            st.write(f"Diversity Score: {token_stats[least_diverse]['token_diversity']:.3f}")
+                            st.write(f"Total Tokens: {token_stats[least_diverse]['total_tokens']:,}")
+                            st.write("*Best for: Classification, grouping, categorical analysis*")
+
+                # Advanced Statistics Summary
+                st.header("📋 Executive Statistics Summary")
+
+                if st.button("📊 Generate Comprehensive Statistics Report"):
+                    with st.spinner("Generating comprehensive statistics report..."):
+
+                        # Create comprehensive report
+                        report_sections = []
+
+                        # Dataset overview
+                        report_sections.append("## 📊 Dataset Overview")
+                        report_sections.append(f"- **Size**: {len(st.session_state.processor.processed_df):,} rows × {len(st.session_state.processor.processed_df.columns)} columns")
+                        report_sections.append(f"- **Memory Usage**: {st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
+                        report_sections.append(f"- **Missing Values**: {st.session_state.processor.processed_df.isnull().sum().sum():,} ({(st.session_state.processor.processed_df.isnull().sum().sum() / st.session_state.processor.processed_df.size) * 100:.2f}%)")
+
+                        # Data types breakdown
+                        dtype_counts = st.session_state.processor.processed_df.dtypes.value_counts()
+                        report_sections.append("\n## 🏷️ Data Types Distribution")
+                        for dtype, count in dtype_counts.items():
+                            percentage = (count / len(st.session_state.processor.processed_df.columns)) * 100
+                            report_sections.append(f"- **{dtype}**: {count} columns ({percentage:.1f}%)")
+
+                        # Tokenization summary
+                        if st.session_state.processor.tokenization_summary:
+                            token_summary = st.session_state.processor.tokenization_summary
+                            report_sections.append("\n## 🏷️ Tokenization Statistics")
+                            report_sections.append(f"- **Total Tokens Generated**: {token_summary['global_stats']['total_tokens_generated']:,}")
+                            report_sections.append(f"- **Unique Semantic Tokens**: {token_summary['global_stats']['total_unique_tokens']:,}")
+                            report_sections.append(f"- **Average Token Diversity**: {token_summary['global_stats']['average_diversity_per_column']:.3f}")
+                            report_sections.append(f"- **Tokens per Data Point**: {token_summary['global_stats']['total_tokens_generated'] / st.session_state.processor.processed_df.size:.2f}")
+
+                        # Quality assessment
+                        completeness = ((st.session_state.processor.processed_df.size - st.session_state.processor.processed_df.isnull().sum().sum()) / st.session_state.processor.processed_df.size) * 100
+                        report_sections.append("\n## ✅ Data Quality Assessment")
+                        report_sections.append(f"- **Overall Completeness**: {completeness:.2f}%")
+                        report_sections.append(f"- **Quality Status**: {'Excellent' if completeness > 95 else 'Good' if completeness > 85 else 'Acceptable' if completeness > 75 else 'Needs Attention'}")
+
+                        # Top insights
+                        if st.session_state.processor.tokenization_summary:
+                            token_stats = st.session_state.processor.tokenization_summary['column_stats']
+                            most_diverse = max(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+                            least_diverse = min(token_stats.keys(), key=lambda x: token_stats[x]['token_diversity'])
+
+                            report_sections.append("\n## 🎯 Key Insights")
+                            report_sections.append(f"- **Most Semantically Rich Column**: {most_diverse} (diversity: {token_stats[most_diverse]['token_diversity']:.3f})")
+                            report_sections.append(f"- **Most Structured Column**: {least_diverse} (diversity: {token_stats[least_diverse]['token_diversity']:.3f})")
+
+                            # Find columns with most tokens
+                            highest_token_col = max(token_stats.keys(), key=lambda x: token_stats[x]['total_tokens'])
+                            report_sections.append(f"- **Most Tokenized Column**: {highest_token_col} ({token_stats[highest_token_col]['total_tokens']:,} tokens)")
+
+                        # Recommendations
+                        report_sections.append("\n## 💡 Recommendations")
+                        if completeness < 85:
+                            report_sections.append("- **Data Quality**: Consider addressing missing values before analysis")
+                        if st.session_state.processor.tokenization_summary:
+                            avg_diversity = st.session_state.processor.tokenization_summary['global_stats']['average_diversity_per_column']
+                            if avg_diversity > 0.7:
+                                report_sections.append("- **High Diversity**: Dataset has rich semantic content, excellent for complex NLP queries")
+                            elif avg_diversity < 0.3:
+                                report_sections.append("- **Low Diversity**: Dataset is highly structured, ideal for classification and pattern recognition")
+
+                        # Display the report
+                        full_report = "\n".join(report_sections)
+                        st.markdown(full_report)
+
+                        # Download report
+                        st.download_button(
+                            label="📥 Download Statistics Report",
+                            data=full_report,
+                            file_name="comprehensive_statistics_report.md",
+                            mime="text/markdown"
+                        )
 
                 # Token Search Interface
                 st.subheader("🔍 Token Search & Analysis")
