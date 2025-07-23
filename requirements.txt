@@ -3,7 +3,3 @@ dotenv
 scikit-learn
 plotly
 nltk
-punkt_tab
-punkt
-wordnet
-omw-1.4
