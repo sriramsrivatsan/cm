@@ -5,22 +5,235 @@ import openai
 from io import StringIO
 import json
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import plotly.express as px
 import plotly.graph_objects as go
+from collections import Counter
+import nltk
+from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.chunk import ne_chunk
+from nltik.tag import pos_tag
+import string
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
+
+# Download required NLTK data
+@st.cache_resource
+def download_nltk_data():
+    try:
+        nltk.download('punkt', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        nltk.download('wordnet', quiet=True)
+        nltk.download('averaged_perceptron_tagger', quiet=True)
+        nltk.download('maxent_ne_chunker', quiet=True)
+        nltk.download('words', quiet=True)
+        return True
+    except:
+        return False
 
 # Set page config
 st.set_page_config(
-    page_title="CSV Natural Language Query App",
+    page_title="CSV Natural Language Query App with Advanced Tokenization",
     page_icon="📊",
     layout="wide"
 )
+
+class AdvancedTokenizer:
+    def __init__(self):
+        self.stemmer = PorterStemmer()
+        self.lemmatizer = WordNetLemmatizer()
+        self.stop_words = set(stopwords.words('english'))
+
+    def tokenize_text(self, text: str, method='lemmatize') -> List[str]:
+        """Advanced text tokenization with multiple options"""
+        if pd.isna(text) or not isinstance(text, str):
+            return []
+
+        # Convert to lowercase and remove punctuation
+        text = text.lower()
+        text = re.sub(r'[^\w\s]', ' ', text)
+
+        # Tokenize into words
+        tokens = word_tokenize(text)
+
+        # Remove stopwords
+        tokens = [token for token in tokens if token not in self.stop_words and len(token) > 2]
+
+        # Apply stemming or lemmatization
+        if method == 'stem':
+            tokens = [self.stemmer.stem(token) for token in tokens]
+        elif method == 'lemmatize':
+            tokens = [self.lemmatizer.lemmatize(token) for token in tokens]
+
+        # Remove empty tokens
+        tokens = [token for token in tokens if token.strip()]
+
+        return tokens
+
+    def tokenize_numeric(self, value, column_name: str) -> List[str]:
+        """Tokenize numeric values with contextual information"""
+        if pd.isna(value):
+            return ['missing_value']
+
+        tokens = []
+
+        # Add the raw value as string
+        tokens.append(str(value))
+
+        # Add range-based tokens for better querying
+        if isinstance(value, (int, float)):
+            abs_val = abs(value)
+
+            # Magnitude tokens
+            if abs_val == 0:
+                tokens.extend(['zero', 'empty'])
+            elif abs_val < 1:
+                tokens.extend(['small', 'fraction', 'decimal'])
+            elif abs_val < 10:
+                tokens.extend(['single_digit', 'small'])
+            elif abs_val < 100:
+                tokens.extend(['double_digit', 'medium'])
+            elif abs_val < 1000:
+                tokens.extend(['hundreds', 'large'])
+            elif abs_val < 10000:
+                tokens.extend(['thousands', 'very_large'])
+            else:
+                tokens.extend(['huge', 'massive'])
+
+            # Sign tokens
+            if value > 0:
+                tokens.append('positive')
+            elif value < 0:
+                tokens.extend(['negative', 'minus'])
+
+            # Special number patterns
+            if value == int(value):
+                tokens.append('integer')
+            else:
+                tokens.extend(['decimal', 'float'])
+
+        # Add column context
+        tokens.append(f"{column_name}_value")
+
+        return tokens
+
+    def tokenize_datetime(self, value, column_name: str) -> List[str]:
+        """Tokenize datetime values with temporal context"""
+        if pd.isna(value):
+            return ['missing_date']
+
+        tokens = []
+
+        try:
+            if isinstance(value, str):
+                dt = pd.to_datetime(value)
+            else:
+                dt = value
+
+            # Basic components
+            tokens.extend([
+                str(dt.year), f"year_{dt.year}",
+                str(dt.month), f"month_{dt.month}", dt.strftime('%B').lower(),
+                str(dt.day), f"day_{dt.day}",
+                dt.strftime('%A').lower(), dt.strftime('%a').lower()
+            ])
+
+            # Quarters and seasons
+            quarter = (dt.month - 1) // 3 + 1
+            tokens.extend([f"quarter_{quarter}", f"q{quarter}"])
+
+            # Seasons (Northern Hemisphere)
+            month = dt.month
+            if month in [12, 1, 2]:
+                tokens.append('winter')
+            elif month in [3, 4, 5]:
+                tokens.append('spring')
+            elif month in [6, 7, 8]:
+                tokens.append('summer')
+            else:
+                tokens.append('autumn')
+
+            # Decade
+            decade = (dt.year // 10) * 10
+            tokens.append(f"decade_{decade}s")
+
+            # Recent vs old
+            current_year = datetime.now().year
+            if dt.year == current_year:
+                tokens.append('current_year')
+            elif dt.year == current_year - 1:
+                tokens.append('last_year')
+            elif dt.year > current_year - 5:
+                tokens.append('recent')
+            elif dt.year < current_year - 20:
+                tokens.append('old')
+
+            # Add column context
+            tokens.append(f"{column_name}_date")
+
+        except:
+            tokens = ['invalid_date']
+
+        return tokens
+
+    def tokenize_categorical(self, value, column_name: str, value_counts: Dict = None) -> List[str]:
+        """Tokenize categorical values with frequency context"""
+        if pd.isna(value) or value == 'Unknown':
+            return ['missing_category', 'unknown']
+
+        tokens = []
+
+        # Basic tokenization of the category value
+        if isinstance(value, str):
+            # Tokenize the category name itself
+            category_tokens = self.tokenize_text(value, method='lemmatize')
+            tokens.extend(category_tokens)
+
+            # Add original value (cleaned)
+            clean_value = re.sub(r'[^\w\s]', '_', str(value).lower())
+            tokens.append(clean_value)
+
+            # Add word count context
+            word_count = len(value.split())
+            if word_count == 1:
+                tokens.append('single_word_category')
+            elif word_count > 3:
+                tokens.append('multi_word_category')
+
+            # Add length context
+            if len(value) < 5:
+                tokens.append('short_category')
+            elif len(value) > 20:
+                tokens.append('long_category')
+
+        # Add frequency context if available
+        if value_counts and value in value_counts:
+            total_count = sum(value_counts.values())
+            frequency = value_counts[value] / total_count
+
+            if frequency > 0.5:
+                tokens.append('dominant_category')
+            elif frequency > 0.1:
+                tokens.append('common_category')
+            elif frequency < 0.01:
+                tokens.append('rare_category')
+
+        # Add column context
+        tokens.append(f"{column_name}_category")
+
+        return tokens
 
 class CSVProcessor:
     def __init__(self):
         self.df = None
         self.processed_df = None
+        self.tokenized_df = None
         self.data_summary = None
+        self.tokenization_summary = None
+        self.tokenizer = AdvancedTokenizer()
 
     def load_csv(self, uploaded_file):
         """Load and initially process the CSV file"""
@@ -52,6 +265,7 @@ class CSVProcessor:
         self.processed_df = self.df.copy()
 
         # Clean column names
+        original_columns = self.processed_df.columns.tolist()
         self.processed_df.columns = [
             re.sub(r'[^\w\s]', '', col).strip().replace(' ', '_').lower()
             for col in self.processed_df.columns
@@ -70,15 +284,106 @@ class CSVProcessor:
             if self.processed_df[col].dtype == 'object':
                 # Check if it's a date
                 try:
-                    pd.to_datetime(self.processed_df[col], infer_datetime_format=True)
+                    pd.to_datetime(self.processed_df[col], errors='raise', infer_datetime_format=True)
                     self.processed_df[col] = pd.to_datetime(self.processed_df[col])
                 except:
                     # Try to convert to numeric
                     try:
-                        self.processed_df[col] = pd.to_numeric(self.processed_df[col])
+                        self.processed_df[col] = pd.to_numeric(self.processed_df[col], errors='raise')
                     except:
                         pass  # Keep as string
 
+        return True
+
+    def tokenize_dataset(self):
+        """Perform comprehensive tokenization of the entire dataset"""
+        if self.processed_df is None:
+            return False
+
+        st.info("🔄 Starting comprehensive tokenization process...")
+
+        # Initialize tokenized dataframe with original data
+        self.tokenized_df = self.processed_df.copy()
+
+        # Dictionary to store all tokens for summary
+        all_tokens = {}
+        column_token_stats = {}
+
+        progress_bar = st.progress(0)
+        total_columns = len(self.processed_df.columns)
+
+        for idx, col in enumerate(self.processed_df.columns):
+            st.info(f"Tokenizing column: {col}")
+
+            column_tokens = []
+            token_column_name = f"{col}_tokens"
+
+            # Determine column type and tokenize accordingly
+            if self.processed_df[col].dtype in ['int64', 'float64']:
+                # Numeric tokenization
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_numeric(value, col)
+                    column_tokens.extend(tokens)
+
+            elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
+                # Datetime tokenization
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_datetime(value, col)
+                    column_tokens.extend(tokens)
+
+            else:
+                # Categorical/Text tokenization
+                value_counts = self.processed_df[col].value_counts().to_dict()
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_categorical(value, col, value_counts)
+                    column_tokens.extend(tokens)
+
+            # Store tokens for this column
+            all_tokens[col] = column_tokens
+
+            # Calculate token statistics for this column
+            unique_tokens = set(column_tokens)
+            column_token_stats[col] = {
+                'total_tokens': len(column_tokens),
+                'unique_tokens': len(unique_tokens),
+                'most_common': Counter(column_tokens).most_common(10),
+                'token_diversity': len(unique_tokens) / len(column_tokens) if column_tokens else 0
+            }
+
+            # Add tokenized column to dataframe (store as string for display)
+            token_lists = []
+            if self.processed_df[col].dtype in ['int64', 'float64']:
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_numeric(value, col)
+                    token_lists.append(' | '.join(tokens))
+            elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_datetime(value, col)
+                    token_lists.append(' | '.join(tokens))
+            else:
+                value_counts = self.processed_df[col].value_counts().to_dict()
+                for value in self.processed_df[col]:
+                    tokens = self.tokenizer.tokenize_categorical(value, col, value_counts)
+                    token_lists.append(' | '.join(tokens))
+
+            self.tokenized_df[token_column_name] = token_lists
+
+            # Update progress
+            progress_bar.progress((idx + 1) / total_columns)
+
+        # Create comprehensive tokenization summary
+        self.tokenization_summary = {
+            'total_columns_tokenized': len(column_token_stats),
+            'column_stats': column_token_stats,
+            'global_stats': {
+                'total_tokens_generated': sum([stats['total_tokens'] for stats in column_token_stats.values()]),
+                'total_unique_tokens': len(set([token for tokens in all_tokens.values() for token in tokens])),
+                'average_tokens_per_column': np.mean([stats['total_tokens'] for stats in column_token_stats.values()]),
+                'average_diversity_per_column': np.mean([stats['token_diversity'] for stats in column_token_stats.values()])
+            }
+        }
+
+        st.success("✅ Tokenization completed successfully!")
         return True
 
     def generate_data_summary(self):
@@ -92,7 +397,8 @@ class CSVProcessor:
                 "total_columns": len(self.processed_df.columns),
                 "column_names": list(self.processed_df.columns)
             },
-            "column_details": {}
+            "column_details": {},
+            "tokenization_info": self.tokenization_summary if self.tokenization_summary else None
         }
 
         for col in self.processed_df.columns:
@@ -109,10 +415,19 @@ class CSVProcessor:
                     "mean": float(self.processed_df[col].mean()),
                     "median": float(self.processed_df[col].median())
                 })
+
+                # Add tokenization info if available
+                if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
+                    col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
+
             elif self.processed_df[col].dtype == 'object':
                 # Get top 5 most common values
                 top_values = self.processed_df[col].value_counts().head(5)
                 col_info["top_values"] = top_values.to_dict()
+
+                # Add tokenization info if available
+                if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
+                    col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
 
             summary["column_details"][col] = col_info
 
@@ -123,17 +438,29 @@ class OpenAIQueryProcessor:
     def __init__(self, api_key):
         self.client = openai.OpenAI(api_key=api_key)
 
-    def generate_system_prompt(self, data_summary: Dict) -> str:
-        """Generate a system prompt based on the data summary"""
-        prompt = f"""You are a data analyst assistant. You have access to a dataset with the following structure:
+    def generate_system_prompt(self, data_summary: Dict, include_tokenization: bool = True) -> str:
+        """Generate an enhanced system prompt based on the data summary and tokenization"""
+        prompt = f"""You are an advanced data analyst assistant with access to a comprehensively tokenized dataset.
 
 Dataset Overview:
 - Total rows: {data_summary['dataset_info']['total_rows']}
 - Total columns: {data_summary['dataset_info']['total_columns']}
 - Columns: {', '.join(data_summary['dataset_info']['column_names'])}
 
-Column Details:
 """
+
+        if include_tokenization and data_summary.get('tokenization_info'):
+            token_info = data_summary['tokenization_info']
+            prompt += f"""
+Tokenization Summary:
+- Total tokens generated: {token_info['global_stats']['total_tokens_generated']:,}
+- Unique tokens: {token_info['global_stats']['total_unique_tokens']:,}
+- Average tokens per column: {token_info['global_stats']['average_tokens_per_column']:.1f}
+- Token diversity score: {token_info['global_stats']['average_diversity_per_column']:.2f}
+
+"""
+
+        prompt += "Detailed Column Analysis:\n"
 
         for col, details in data_summary['column_details'].items():
             prompt += f"\n{col}:"
@@ -148,25 +475,45 @@ Column Details:
                 top_vals = list(details['top_values'].keys())[:3]
                 prompt += f"\n  - Common values: {', '.join(map(str, top_vals))}"
 
+            # Add tokenization details
+            if 'tokenization' in details:
+                token_stats = details['tokenization']
+                prompt += f"\n  - Tokens generated: {token_stats['total_tokens']}"
+                prompt += f"\n  - Unique tokens: {token_stats['unique_tokens']}"
+                prompt += f"\n  - Token diversity: {token_stats['token_diversity']:.2f}"
+                if token_stats['most_common']:
+                    top_tokens = [f"{token}({count})" for token, count in token_stats['most_common'][:3]]
+                    prompt += f"\n  - Top tokens: {', '.join(top_tokens)}"
+
         prompt += """
 
-When answering questions about this data:
-1. Provide specific insights based on the data structure
-2. Suggest relevant visualizations when appropriate
-3. If asked for analysis, provide statistical insights
-4. If the question requires specific data values, mention that you'd need to query the actual dataset
-5. Always be clear about what analysis is possible with this data structure
+Enhanced Capabilities with Tokenization:
+1. Each data point has been extensively tokenized to capture semantic meaning, context, and patterns
+2. Numeric values include magnitude, sign, and contextual tokens
+3. Dates include temporal context (seasons, decades, relative time)
+4. Categories include frequency context and semantic tokenization
+5. All tokens are searchable and queryable for complex natural language questions
+
+When answering questions:
+1. Leverage the rich tokenization to provide deeper insights
+2. Use token patterns to identify trends and correlations
+3. Reference token diversity scores to assess data complexity
+4. Suggest analyses based on available token types
+5. Provide specific, actionable insights based on the tokenized structure
+6. Mention relevant token patterns when explaining findings
 """
 
         return prompt
 
-    def query_data(self, question: str, data_summary: Dict, sample_data: str = None) -> str:
-        """Process natural language query about the data"""
-        system_prompt = self.generate_system_prompt(data_summary)
+    def query_data(self, question: str, data_summary: Dict, sample_data: str = None, tokenized_sample: str = None) -> str:
+        """Process natural language query about the tokenized data"""
+        system_prompt = self.generate_system_prompt(data_summary, include_tokenization=True)
 
         user_message = f"Question: {question}"
         if sample_data:
-            user_message += f"\n\nSample data (first 5 rows):\n{sample_data}"
+            user_message += f"\n\nSample original data (first 5 rows):\n{sample_data}"
+        if tokenized_sample:
+            user_message += f"\n\nSample tokenized data (showing token patterns):\n{tokenized_sample}"
 
         try:
             response = self.client.chat.completions.create(
@@ -175,7 +522,7 @@ When answering questions about this data:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ],
-                max_tokens=1000,
+                max_tokens=1500,
                 temperature=0.7
             )
 
@@ -185,8 +532,12 @@ When answering questions about this data:
             return f"Error processing query: {str(e)}"
 
 def main():
-    st.title("📊 CSV Natural Language Query App")
-    st.markdown("Upload a CSV file and ask questions about your data in natural language!")
+    st.title("📊 Advanced CSV Natural Language Query App")
+    st.markdown("Upload a CSV file and ask questions about your data with **comprehensive tokenization** for enhanced natural language understanding!")
+
+    # Check NLTK data
+    if not download_nltk_data():
+        st.error("Failed to download required NLTK data. Some tokenization features may not work properly.")
 
     # Initialize session state
     if 'processor' not in st.session_state:
@@ -208,6 +559,17 @@ def main():
         else:
             st.warning("⚠️ Please enter your OpenAI API key")
 
+        st.markdown("---")
+        st.header("Tokenization Settings")
+
+        tokenization_method = st.selectbox(
+            "Text Processing Method",
+            ["lemmatize", "stem", "basic"],
+            help="Choose how to process text tokens"
+        )
+
+        show_token_details = st.checkbox("Show detailed token analysis", value=True)
+
     # File upload
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
@@ -228,110 +590,350 @@ def main():
                 st.dataframe(st.session_state.processor.df.head())
 
             # Data processing section
-            st.header("🔧 Data Processing")
+            st.header("🔧 Data Processing & Tokenization")
 
-            if st.button("Clean and Process Data"):
-                with st.spinner("Processing data..."):
-                    if st.session_state.processor.clean_data():
-                        st.session_state.processor.generate_data_summary()
-                        st.success("✅ Data processed successfully!")
+            col1, col2 = st.columns(2)
 
-                        # Show processed data info
-                        st.subheader("Processed Data Overview")
+            with col1:
+                if st.button("Clean Data", type="secondary"):
+                    with st.spinner("Cleaning data..."):
+                        if st.session_state.processor.clean_data():
+                            st.success("✅ Data cleaned successfully!")
+                        else:
+                            st.error("❌ Error cleaning data")
 
-                        # Display data summary
-                        summary = st.session_state.processor.data_summary
+            with col2:
+                if st.button("🚀 Clean + Tokenize Data", type="primary"):
+                    with st.spinner("Processing and tokenizing data..."):
+                        # First clean the data
+                        if st.session_state.processor.clean_data():
+                            st.success("✅ Data cleaned!")
 
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Processed Rows", summary['dataset_info']['total_rows'])
-                        with col2:
-                            st.metric("Processed Columns", summary['dataset_info']['total_columns'])
-                        with col3:
-                            missing_data = sum([details['null_count']
-                                              for details in summary['column_details'].values()])
-                            st.metric("Missing Values Handled", missing_data)
+                            # Then tokenize
+                            if st.session_state.processor.tokenize_dataset():
+                                st.session_state.processor.generate_data_summary()
+                                st.balloons()
+                                st.success("🎉 Data processing and tokenization completed!")
+                            else:
+                                st.error("❌ Error during tokenization")
+                        else:
+                            st.error("❌ Error cleaning data")
 
-                        # Show processed data sample
-                        with st.expander("View Processed Data Sample"):
-                            st.dataframe(st.session_state.processor.processed_df.head())
+            # Show processed and tokenized data info
+            if st.session_state.processor.tokenized_df is not None:
+                st.header("📈 Enhanced Data Analysis")
 
-                        # Show column information
-                        with st.expander("Column Information"):
-                            for col, details in summary['column_details'].items():
-                                st.write(f"**{col}**")
-                                st.write(f"- Type: {details['data_type']}")
-                                st.write(f"- Unique values: {details['unique_count']}")
-                                if 'min' in details:
-                                    st.write(f"- Range: {details['min']} to {details['max']}")
-                                if 'top_values' in details and details['top_values']:
-                                    top_3 = list(details['top_values'].items())[:3]
-                                    st.write(f"- Top values: {', '.join([f'{k} ({v})' for k, v in top_3])}")
-                                st.write("---")
+                # Tokenization summary
+                if st.session_state.processor.tokenization_summary:
+                    token_summary = st.session_state.processor.tokenization_summary
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Tokens", f"{token_summary['global_stats']['total_tokens_generated']:,}")
+                    with col2:
+                        st.metric("Unique Tokens", f"{token_summary['global_stats']['total_unique_tokens']:,}")
+                    with col3:
+                        st.metric("Avg Tokens/Column", f"{token_summary['global_stats']['average_tokens_per_column']:.1f}")
+                    with col4:
+                        st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.2f}")
+
+                # Show tokenized data sample
+                with st.expander("🔍 View Tokenized Data Sample"):
+                    # Show original vs tokenized side by side
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader("Original Data")
+                        st.dataframe(st.session_state.processor.processed_df.head(3))
+                    with col2:
+                        st.subheader("Tokenized Representation")
+                        # Show only token columns
+                        token_columns = [col for col in st.session_state.processor.tokenized_df.columns if col.endswith('_tokens')]
+                        if token_columns:
+                            st.dataframe(st.session_state.processor.tokenized_df[token_columns].head(3))
+
+                # Detailed tokenization analysis
+                if show_token_details and st.session_state.processor.tokenization_summary:
+                    with st.expander("📊 Detailed Tokenization Analysis"):
+                        for col, stats in st.session_state.processor.tokenization_summary['column_stats'].items():
+                            st.subheader(f"Column: {col}")
+
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Total Tokens", stats['total_tokens'])
+                            with col2:
+                                st.metric("Unique Tokens", stats['unique_tokens'])
+                            with col3:
+                                st.metric("Diversity Score", f"{stats['token_diversity']:.3f}")
+
+                            if stats['most_common']:
+                                st.write("**Most Common Tokens:**")
+                                for token, count in stats['most_common'][:10]:
+                                    st.write(f"• {token}: {count}")
+
+                            st.markdown("---")
 
             # Natural Language Query Section
-            if (st.session_state.processor.processed_df is not None and
+            if (st.session_state.processor.tokenized_df is not None and
                 st.session_state.openai_processor is not None):
 
-                st.header("🤖 Natural Language Queries")
-                st.markdown("Ask questions about your data in plain English!")
+                st.header("🤖 Enhanced Natural Language Queries")
+                st.markdown("Ask sophisticated questions about your **tokenized** data!")
 
-                # Example questions
-                with st.expander("💡 Example Questions"):
+                # Enhanced example questions
+                with st.expander("💡 Enhanced Example Questions"):
                     st.markdown("""
-                    - What are the main patterns in this data?
-                    - Which columns have the most variation?
-                    - What kind of analysis would be most valuable for this dataset?
-                    - Are there any correlations I should be aware of?
-                    - What visualizations would help understand this data better?
-                    - Summarize the key insights from this dataset
+                    **Basic Analysis:**
+                    - What are the main patterns and insights in this tokenized dataset?
+                    - Which columns have the highest token diversity and what does that indicate?
+                    - Are there any interesting token patterns that suggest hidden relationships?
+
+                    **Advanced Token-Based Queries:**
+                    - What semantic patterns emerge from the categorical tokenization?
+                    - How do the numeric token ranges correlate with other variables?
+                    - What temporal patterns are revealed through date tokenization?
+                    - Which tokens appear most frequently across different columns?
+
+                    **Insight-Driven Questions:**
+                    - Based on token analysis, what are the key drivers in this dataset?
+                    - What unique insights does tokenization reveal that basic analysis might miss?
+                    - How can the token patterns inform business decisions or further analysis?
                     """)
 
                 # Query input
-                question = st.text_area("Ask a question about your data:",
-                                       placeholder="e.g., What are the main trends in this data?")
+                question = st.text_area("Ask a sophisticated question about your tokenized data:",
+                                       placeholder="e.g., What unique insights does the tokenization reveal about customer behavior patterns?")
 
-                if st.button("🔍 Analyze") and question:
-                    with st.spinner("Analyzing your data..."):
+                if st.button("🔍 Analyze with Enhanced Tokenization") and question:
+                    with st.spinner("Performing advanced analysis on tokenized data..."):
                         # Prepare sample data for context
-                        sample_data = st.session_state.processor.processed_df.head().to_string()
+                        sample_data = st.session_state.processor.processed_df.head(3).to_string()
+
+                        # Prepare tokenized sample
+                        token_columns = [col for col in st.session_state.processor.tokenized_df.columns if col.endswith('_tokens')]
+                        if token_columns:
+                            tokenized_sample = st.session_state.processor.tokenized_df[token_columns].head(3).to_string()
+                        else:
+                            tokenized_sample = None
 
                         # Get AI response
                         response = st.session_state.openai_processor.query_data(
                             question,
                             st.session_state.processor.data_summary,
-                            sample_data
+                            sample_data,
+                            tokenized_sample
                         )
 
-                        st.subheader("📋 Analysis Results")
+                        st.subheader("🎯 Advanced Analysis Results")
                         st.write(response)
 
+                # Token Search Interface
+                st.subheader("🔍 Token Search & Analysis")
+                if st.session_state.processor.tokenized_df is not None:
+                    search_token = st.text_input("Search for specific tokens across all columns:")
+
+                    if search_token:
+                        with st.spinner("Searching tokens..."):
+                            # Search across all token columns
+                            token_columns = [col for col in st.session_state.processor.tokenized_df.columns if col.endswith('_tokens')]
+
+                            matches = {}
+                            for col in token_columns:
+                                matching_rows = st.session_state.processor.tokenized_df[
+                                    st.session_state.processor.tokenized_df[col].str.contains(search_token, case=False, na=False)
+                                ].index.tolist()
+
+                                if matching_rows:
+                                    matches[col] = len(matching_rows)
+
+                            if matches:
+                                st.success(f"Found '{search_token}' in {len(matches)} columns!")
+
+                                # Display matches
+                                for col, count in matches.items():
+                                    original_col = col.replace('_tokens', '')
+                                    st.write(f"**{original_col}**: {count} matches")
+
+                                # Show sample matches
+                                if st.button("Show Sample Matches"):
+                                    for col in list(matches.keys())[:3]:  # Show first 3 columns
+                                        original_col = col.replace('_tokens', '')
+                                        matching_rows = st.session_state.processor.tokenized_df[
+                                            st.session_state.processor.tokenized_df[col].str.contains(search_token, case=False, na=False)
+                                        ]
+
+                                        if not matching_rows.empty:
+                                            st.write(f"**Sample matches in {original_col}:**")
+                                            st.dataframe(matching_rows[[original_col, col]].head(3))
+                            else:
+                                st.warning(f"No matches found for '{search_token}'")
+
                 # Quick stats section
-                st.header("📈 Quick Statistics")
-                if st.button("Generate Quick Stats"):
+                st.header("📈 Enhanced Quick Statistics")
+                if st.button("Generate Token-Enhanced Stats"):
                     df = st.session_state.processor.processed_df
 
-                    # Numeric columns stats
+                    # Numeric columns stats with token context
                     numeric_cols = df.select_dtypes(include=[np.number]).columns
                     if len(numeric_cols) > 0:
-                        st.subheader("Numeric Columns Statistics")
-                        st.dataframe(df[numeric_cols].describe())
+                        st.subheader("Numeric Columns with Token Analysis")
+                        stats_df = df[numeric_cols].describe()
+                        st.dataframe(stats_df)
 
-                    # Categorical columns info
+                        # Add token-based insights
+                        for col in numeric_cols[:3]:  # Show first 3 numeric columns
+                            if st.session_state.processor.tokenization_summary:
+                                col_tokens = st.session_state.processor.tokenization_summary['column_stats'].get(col, {})
+                                if col_tokens:
+                                    st.write(f"**{col} Token Insights:**")
+                                    st.write(f"- Generated {col_tokens['total_tokens']} contextual tokens")
+                                    st.write(f"- Token diversity: {col_tokens['token_diversity']:.3f}")
+
+                                    # Show distribution with token context
+                                    fig = px.histogram(df, x=col, title=f"Distribution of {col} (with {col_tokens['unique_tokens']} unique tokens)")
+                                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Categorical columns with enhanced token analysis
                     cat_cols = df.select_dtypes(include=['object']).columns
                     if len(cat_cols) > 0:
-                        st.subheader("Categorical Columns")
-                        for col in cat_cols[:5]:  # Show first 5 categorical columns
+                        st.subheader("Categorical Columns with Token Enhancement")
+                        for col in cat_cols[:3]:  # Show first 3 categorical columns
                             st.write(f"**{col}** - {df[col].nunique()} unique values")
-                            if df[col].nunique() <= 10:
+
+                            # Show token statistics if available
+                            if st.session_state.processor.tokenization_summary:
+                                col_tokens = st.session_state.processor.tokenization_summary['column_stats'].get(col, {})
+                                if col_tokens:
+                                    st.write(f"- Generated {col_tokens['total_tokens']} semantic tokens")
+                                    st.write(f"- Token diversity: {col_tokens['token_diversity']:.3f}")
+                                    st.write(f"- Most common tokens: {', '.join([token for token, count in col_tokens['most_common'][:5]])}")
+
+                            if df[col].nunique() <= 15:
                                 fig = px.bar(x=df[col].value_counts().index,
                                            y=df[col].value_counts().values,
                                            title=f"Distribution of {col}")
                                 st.plotly_chart(fig, use_container_width=True)
 
-    # Footer
+                # Token Pattern Analysis
+                st.header("🧠 Token Pattern Analysis")
+                if st.button("Analyze Token Patterns"):
+                    if st.session_state.processor.tokenization_summary:
+                        token_summary = st.session_state.processor.tokenization_summary
+
+                        # Create visualizations of token statistics
+                        columns = list(token_summary['column_stats'].keys())
+                        token_counts = [token_summary['column_stats'][col]['total_tokens'] for col in columns]
+                        diversity_scores = [token_summary['column_stats'][col]['token_diversity'] for col in columns]
+
+                        # Token count distribution
+                        fig1 = px.bar(x=columns, y=token_counts,
+                                     title="Token Count by Column",
+                                     labels={'x': 'Columns', 'y': 'Token Count'})
+                        fig1.update_xaxis(tickangle=45)
+                        st.plotly_chart(fig1, use_container_width=True)
+
+                        # Token diversity scores
+                        fig2 = px.bar(x=columns, y=diversity_scores,
+                                     title="Token Diversity Score by Column",
+                                     labels={'x': 'Columns', 'y': 'Diversity Score'},
+                                     color=diversity_scores,
+                                     color_continuous_scale='viridis')
+                        fig2.update_xaxis(tickangle=45)
+                        st.plotly_chart(fig2, use_container_width=True)
+
+                        # Overall insights
+                        st.subheader("🎯 Key Tokenization Insights")
+
+                        # Find most and least diverse columns
+                        most_diverse = max(columns, key=lambda x: token_summary['column_stats'][x]['token_diversity'])
+                        least_diverse = min(columns, key=lambda x: token_summary['column_stats'][x]['token_diversity'])
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.info(f"**Most Diverse Column:** {most_diverse}")
+                            st.write(f"Diversity Score: {token_summary['column_stats'][most_diverse]['token_diversity']:.3f}")
+                            st.write("This column has the richest variety of semantic tokens, indicating complex patterns.")
+
+                        with col2:
+                            st.info(f"**Least Diverse Column:** {least_diverse}")
+                            st.write(f"Diversity Score: {token_summary['column_stats'][least_diverse]['token_diversity']:.3f}")
+                            st.write("This column has more repetitive patterns, suitable for classification tasks.")
+
+                        # Token frequency analysis
+                        st.subheader("🔥 Global Token Frequency Analysis")
+                        all_tokens = []
+                        for col_stats in token_summary['column_stats'].values():
+                            all_tokens.extend([token for token, count in col_stats['most_common']])
+
+                        global_token_freq = Counter(all_tokens)
+                        most_common_global = global_token_freq.most_common(20)
+
+                        if most_common_global:
+                            tokens, counts = zip(*most_common_global)
+                            fig3 = px.bar(x=list(tokens), y=list(counts),
+                                         title="Top 20 Most Frequent Tokens Across All Columns",
+                                         labels={'x': 'Tokens', 'y': 'Frequency'})
+                            fig3.update_xaxis(tickangle=45)
+                            st.plotly_chart(fig3, use_container_width=True)
+
+                            st.write("**Interpretation:** These tokens appear frequently across multiple columns and represent key semantic concepts in your dataset.")
+
+    # Export functionality
+    if st.session_state.processor.tokenized_df is not None:
+        st.header("📥 Export Enhanced Data")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("📊 Download Processed Data"):
+                csv = st.session_state.processor.processed_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Processed CSV",
+                    data=csv,
+                    file_name="processed_data.csv",
+                    mime="text/csv"
+                )
+
+        with col2:
+            if st.button("🏷️ Download Tokenized Data"):
+                csv = st.session_state.processor.tokenized_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Tokenized CSV",
+                    data=csv,
+                    file_name="tokenized_data.csv",
+                    mime="text/csv"
+                )
+
+        # Export tokenization summary
+        if st.session_state.processor.tokenization_summary:
+            if st.button("📋 Download Tokenization Report"):
+                report = json.dumps(st.session_state.processor.tokenization_summary, indent=2)
+                st.download_button(
+                    label="Download Tokenization JSON Report",
+                    data=report,
+                    file_name="tokenization_report.json",
+                    mime="application/json"
+                )
+
+    # Footer with advanced tips
     st.markdown("---")
-    st.markdown("💡 **Tip**: Make sure your CSV file has proper headers and is well-formatted for best results!")
+    st.markdown("""
+    ## 🚀 Advanced Tokenization Features
+
+    **What makes this tokenization special:**
+    - **Contextual Numeric Tokens**: Numbers include magnitude, sign, and range information
+    - **Temporal Intelligence**: Dates are tokenized with seasons, decades, and relative time context
+    - **Semantic Categories**: Text categories are broken down into meaningful semantic components
+    - **Frequency Context**: Common vs rare values are identified and tokenized accordingly
+    - **Column Awareness**: All tokens include column context for better querying
+
+    **Best Practices:**
+    - Use specific, detailed questions to leverage the rich tokenization
+    - Search for semantic tokens to find patterns not visible in raw data
+    - Compare token diversity scores to understand data complexity
+    - Use the token search feature to find cross-column relationships
+
+    💡 **Pro Tip**: The more detailed your natural language questions, the better the AI can utilize the comprehensive tokenization to provide insights!
+    """)
 
 if __name__ == "__main__":
     main()
