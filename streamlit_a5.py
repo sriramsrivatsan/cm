@@ -765,7 +765,7 @@ def main():
                                               labels={'x': 'Columns', 'y': 'Token Count'},
                                               color=token_counts,
                                               color_continuous_scale='blues')
-                            fig_tokens.update_xaxis(tickangle=45)
+                            fig_tokens.update_layout(xaxis_tickangle=45)
                             st.plotly_chart(fig_tokens, use_container_width=True)
 
                         with col2:
@@ -777,7 +777,7 @@ def main():
                                                  labels={'x': 'Columns', 'y': 'Diversity Score'},
                                                  color=diversity_scores,
                                                  color_continuous_scale='viridis')
-                            fig_diversity.update_xaxis(tickangle=45)
+                            fig_diversity.update_layout(xaxis_tickangle=45)
                             st.plotly_chart(fig_diversity, use_container_width=True)
 
                         # Token frequency heatmap
@@ -867,7 +867,7 @@ def main():
                                     count_list = value_counts.values.tolist()
                                     fig_bar = px.bar(x=value_list, y=count_list,
                                                    title=f"Top Values in {col}")
-                                    fig_bar.update_xaxis(tickangle=45)
+                                    fig_bar.update_layout(xaxis_tickangle=45)
                                     st.plotly_chart(fig_bar, use_container_width=True)
 
                                 with col2:
@@ -923,7 +923,7 @@ def main():
                             with col2:
                                 fig_tokens = px.bar(token_df, x='Token', y='Frequency',
                                                   title=f"Top Tokens in {selected_column}")
-                                fig_tokens.update_xaxis(tickangle=45)
+                                fig_tokens.update_layout(xaxis_tickangle=45)
                                 st.plotly_chart(fig_tokens, use_container_width=True)
 
                         # Data distribution for selected column
@@ -980,7 +980,7 @@ def main():
                                 count_list = value_counts.values.tolist()
                                 fig_bar = px.bar(x=value_list, y=count_list,
                                                title=f"Value Distribution in {selected_column}")
-                                fig_bar.update_xaxis(tickangle=45)
+                                fig_bar.update_layout(xaxis_tickangle=45)
                                 st.plotly_chart(fig_bar, use_container_width=True)
 
                 # Show tokenized data sample
@@ -1312,7 +1312,7 @@ Tokenization Statistics:
                                         labels={'x': 'Column', 'y': 'Quality Score'},
                                         color=quality_scores,
                                         color_continuous_scale='RdYlGn')
-                    fig_quality.update_xaxis(tickangle=45)
+                    fig_quality.update_layout(xaxis_tickangle=45)
                     fig_quality.update_traces(texttemplate='%{y:.1f}', textposition='outside')
                     st.plotly_chart(fig_quality, use_container_width=True)
 
@@ -1567,11 +1567,11 @@ Tokenization Statistics:
                                     st.write(f"- Most common tokens: {', '.join([token for token, count in col_tokens['most_common'][:5]])}")
 
                             if df[col].nunique() <= 15:
-                                value_counts = df[col].value_counts()
                                 value_list = value_counts.index.tolist()
                                 count_list = value_counts.values.tolist()
                                 fig = px.bar(x=value_list, y=count_list,
                                            title=f"Distribution of {col}")
+                                fig.update_layout(xaxis_tickangle=45)
                                 st.plotly_chart(fig, use_container_width=True)
 
                 # Token Pattern Analysis
@@ -1589,7 +1589,7 @@ Tokenization Statistics:
                         fig1 = px.bar(x=columns, y=token_counts,
                                      title="Token Count by Column",
                                      labels={'x': 'Columns', 'y': 'Token Count'})
-                        fig1.update_xaxis(tickangle=45)
+                        fig1.update_layout(xaxis_tickangle=45)
                         st.plotly_chart(fig1, use_container_width=True)
 
                         # Token diversity scores
@@ -1598,7 +1598,7 @@ Tokenization Statistics:
                                      labels={'x': 'Columns', 'y': 'Diversity Score'},
                                      color=diversity_scores,
                                      color_continuous_scale='viridis')
-                        fig2.update_xaxis(tickangle=45)
+                        fig2.update_layout(xaxis_tickangle=45)
                         st.plotly_chart(fig2, use_container_width=True)
 
                         # Overall insights
@@ -1633,7 +1633,7 @@ Tokenization Statistics:
                             fig3 = px.bar(x=list(tokens), y=list(counts),
                                          title="Top 20 Most Frequent Tokens Across All Columns",
                                          labels={'x': 'Tokens', 'y': 'Frequency'})
-                            fig3.update_xaxis(tickangle=45)
+                            fig3.update_layout(xaxis_tickangle=45)
                             st.plotly_chart(fig3, use_container_width=True)
 
                             st.write("**Interpretation:** These tokens appear frequently across multiple columns and represent key semantic concepts in your dataset.")
