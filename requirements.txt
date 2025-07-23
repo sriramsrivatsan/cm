@@ -3,3 +3,4 @@ dotenv
 scikit-learn
 plotly
 nltk
+tiktoken
