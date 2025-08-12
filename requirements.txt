@@ -4,3 +4,4 @@ scikit-learn
 plotly
 nltk
 tiktoken
+sentence-transformers
