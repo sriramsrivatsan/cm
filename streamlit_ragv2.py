@@ -46,7 +46,7 @@ except ImportError as e:
 # RAG-specific imports with USearch instead of FAISS
 try:
     from usearch.index import Index
-    USEARCH_AVAILABLE_AVAILABLE = True
+    USEARCH_AVAILABLE = True
     st.sidebar.success("✅ USearch available")
 except ImportError:
     USEARCH_AVAILABLE = False
