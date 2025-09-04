@@ -46,7 +46,7 @@ except ImportError as e:
 # RAG-specific imports with USearch instead of FAISS
 try:
     from usearch.index import Index
-    USEARCH_AVAILABLE = True
+    USEARCH_AVAILABLE_AVAILABLE = True
     st.sidebar.success("✅ USearch available")
 except ImportError:
     USEARCH_AVAILABLE = False
@@ -982,9 +982,9 @@ def main():
 
     # Check dependencies
     missing_deps = []
-    if not FAISS_AVAILABLE:
-        missing_deps.append("faiss-cpu")
-        st.warning("⚠️ FAISS not installed. Vector search will be limited. Install with: pip install faiss-cpu")
+    if not USEARCH_AVAILABLE:
+        missing_deps.append("usearch")
+        st.warning("⚠️ FAISS not installed. Vector search will be limited. Install with: pip install usearch")
     if not SENTENCE_TRANSFORMERS_AVAILABLE:
         missing_deps.append("sentence-transformers")
         st.warning("⚠️ SentenceTransformers not installed. Install with: pip install sentence-transformers")
@@ -1619,7 +1619,7 @@ Question: {question}"""
     
     **Required Dependencies for Full Functionality:**
     ```bash
-    pip install streamlit pandas numpy openai plotly nltk tiktoken faiss-cpu sentence-transformers
+    pip install streamlit pandas numpy openai plotly nltk tiktoken usearch sentence-transformers
     ```
     
     **Installation Commands:**
@@ -1628,7 +1628,7 @@ Question: {question}"""
     pip install streamlit pandas numpy openai plotly nltk tiktoken
     
     # RAG enhancements (optional but recommended for full features)
-    pip install faiss-cpu sentence-transformers
+    pip install usearch sentence-transformers
     ```
     
     **How to Run:**
@@ -1642,3 +1642,4 @@ if __name__ == "__main__":
     main()
 
 
+usearch
