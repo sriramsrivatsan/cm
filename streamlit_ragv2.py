@@ -980,11 +980,11 @@ def main():
     st.sidebar.markdown("• Enhanced query processing")
     st.sidebar.markdown("• Semantic document retrieval")
 
-    # Check dependencies
+    # Check dependencies - FIXED VERSION
     missing_deps = []
-    if not USEARCH_AVAILABLE:
+    if not USEARCH_AVAILABLE:  # Changed from FAISS_AVAILABLE
         missing_deps.append("usearch")
-        st.warning("⚠️ FAISS not installed. Vector search will be limited. Install with: pip install usearch")
+        st.warning("⚠️ USearch not installed. Vector search will be limited. Install with: pip install usearch")
     if not SENTENCE_TRANSFORMERS_AVAILABLE:
         missing_deps.append("sentence-transformers")
         st.warning("⚠️ SentenceTransformers not installed. Install with: pip install sentence-transformers")
@@ -992,6 +992,7 @@ def main():
         missing_deps.append("tiktoken")
         st.warning("⚠️ tiktoken not installed. Token management will use approximations. Install with: pip install tiktoken")
 
+    # Rest of your main function continues...
     # Check NLTK data
     if not download_nltk_data():
         st.error("Failed to download required NLTK data. Some tokenization features may not work properly.")
