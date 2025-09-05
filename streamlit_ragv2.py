@@ -1068,8 +1068,8 @@ class JobCSVProcessor:
             st.error(f"Error loading CSV: {str(e)}")
             logger.error(f"CSV loading error: {str(e)}")
             return False
-
-    def clean_job_data(self) -> bool:
+            
+def clean_job_data(self) -> bool:
         """Clean and preprocess job data with domain-specific logic"""
         if self.df is None:
             st.error("No data loaded")
@@ -1080,28 +1080,30 @@ class JobCSVProcessor:
 
             # Standardize column names for job data
             column_mapping = {}
+            used_names = set()
+            
             for col in self.processed_df.columns:
                 original_col = col
                 clean_col = re.sub(r'[^\w\s]', '', str(col)).strip().replace(' ', '_').lower()
                 
-                # Map to standard job data column names
+                # Map to standard job data column names based on your CSV structure
                 if any(word in clean_col for word in ['company', 'employer', 'firm']):
                     clean_col = 'company'
-                elif any(word in clean_col for word in ['summary', 'job', 'title']) and 'title' in clean_col:
+                elif 'summary' in clean_col and 'job' in clean_col and 'title' in clean_col:
                     clean_col = 'summary_job_title'
-                elif any(word in clean_col for word in ['displayed', 'job', 'title']) and 'title' in clean_col:
+                elif 'displayed' in clean_col and 'job' in clean_col and 'title' in clean_col:
                     clean_col = 'displayed_job_title'
-                elif 'description' in clean_col:
+                elif 'job' in clean_col and 'description' in clean_col:
                     clean_col = 'job_description'
-                elif any(word in clean_col for word in ['city', 'location']):
-                    clean_col = 'city_job_location'
-                elif any(word in clean_col for word in ['state', 'location']):
-                    clean_col = 'state_job_location'
-                elif any(word in clean_col for word in ['country', 'location']):
-                    clean_col = 'country_job_location'
-                elif 'detailed' in clean_col and 'location' in clean_col:
+                elif 'detailed' in clean_col and 'job' in clean_col and 'location' in clean_col:
                     clean_col = 'detailed_job_location'
-                elif 'salary' in clean_col:
+                elif 'city' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'city_job_location'
+                elif 'state' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'state_job_location'
+                elif 'country' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'country_job_location'
+                elif 'job' in clean_col and 'salary' in clean_col:
                     clean_col = 'job_salary'
                 elif 'source' in clean_col:
                     clean_col = 'source'
@@ -1110,6 +1112,15 @@ class JobCSVProcessor:
                 elif 'id' in clean_col:
                     clean_col = 'id'
                 
+                # Ensure unique column names
+                if clean_col in used_names:
+                    counter = 1
+                    base_name = clean_col
+                    while clean_col in used_names:
+                        clean_col = f"{base_name}_{counter}"
+                        counter += 1
+                
+                used_names.add(clean_col)
                 column_mapping[original_col] = clean_col
 
             # Apply column name mapping
@@ -1118,39 +1129,64 @@ class JobCSVProcessor:
             # Handle missing values with job-specific logic
             for col in self.processed_df.columns:
                 if col in ['company', 'summary_job_title', 'displayed_job_title']:
-                    # For critical job fields, use 'Unknown' instead of dropping
                     self.processed_df[col] = self.processed_df[col].fillna('Unknown')
-                elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
-                    # For location fields
+                elif col in ['city_job_location', 'state_job_location', 'country_job_location', 'detailed_job_location']:
                     self.processed_df[col] = self.processed_df[col].fillna('Unknown')
                 elif col == 'job_salary':
-                    # For salary, use 'Not Specified'
                     self.processed_df[col] = self.processed_df[col].fillna('Not Specified')
                 elif col == 'job_description':
-                    # For descriptions, use 'No description provided'
                     self.processed_df[col] = self.processed_df[col].fillna('No description provided')
+                elif col == 'source':
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown Source')
                 elif self.processed_df[col].dtype == 'object':
                     self.processed_df[col] = self.processed_df[col].fillna('Unknown')
                 else:
                     # For numeric columns
-                    median_val = self.processed_df[col].median()
-                    fill_value = median_val if pd.notna(median_val) else 0
-                    self.processed_df[col] = self.processed_df[col].fillna(fill_value)
+                    try:
+                        median_val = self.processed_df[col].median()
+                        fill_value = median_val if pd.notna(median_val) else 0
+                        self.processed_df[col] = self.processed_df[col].fillna(fill_value)
+                    except Exception as e:
+                        logger.warning(f"Could not calculate median for column {col}: {e}")
+                        self.processed_df[col] = self.processed_df[col].fillna(0)
 
-            # Clean text fields specifically
+            # Clean text fields specifically - THIS IS THE KEY FIX
             text_columns = ['company', 'summary_job_title', 'displayed_job_title', 'job_description', 
-                          'city_job_location', 'state_job_location', 'country_job_location']
+                          'city_job_location', 'state_job_location', 'country_job_location', 
+                          'detailed_job_location', 'source']
             
             for col in text_columns:
                 if col in self.processed_df.columns:
-                    # Remove extra whitespace and standardize
-                    self.processed_df[col] = self.processed_df[col].astype(str).str.strip()
-                    # Replace multiple spaces with single space
-                    self.processed_df[col] = self.processed_df[col].str.replace(r'\s+', ' ', regex=True)
+                    try:
+                        # Create a copy of the series to work with
+                        series_to_clean = self.processed_df[col].copy()
+                        
+                        # Ensure it's string type
+                        series_to_clean = series_to_clean.astype(str)
+                        
+                        # Apply string operations safely
+                        # Remove extra whitespace
+                        series_to_clean = series_to_clean.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                        
+                        # Replace multiple spaces with single space  
+                        series_to_clean = series_to_clean.apply(lambda x: re.sub(r'\s+', ' ', str(x)) if pd.notna(x) else 'Unknown')
+                        
+                        # Assign back to the DataFrame
+                        self.processed_df[col] = series_to_clean
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not clean text column {col}: {e}")
+                        try:
+                            # Ultimate fallback: just ensure it's string
+                            self.processed_df[col] = self.processed_df[col].astype(str)
+                        except Exception as e2:
+                            logger.error(f"Complete failure cleaning column {col}: {e2}")
+                            continue
 
-            # Try to convert date column if present
+            # Handle date column if present
             if 'date' in self.processed_df.columns:
                 try:
+                    # Convert date column
                     self.processed_df['date'] = pd.to_datetime(self.processed_df['date'], errors='coerce')
                     # Fill failed conversions with a default date
                     self.processed_df['date'] = self.processed_df['date'].fillna(pd.Timestamp('2023-01-01'))
@@ -1160,10 +1196,10 @@ class JobCSVProcessor:
             # Clean salary information
             if 'job_salary' in self.processed_df.columns:
                 try:
-                    # Standardize salary formats
-                    self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
-                    # Remove dollar signs and commas
-                    self.processed_df['job_salary'] = self.processed_df['job_salary'].str.replace(r'[\$,]', '', regex=True)
+                    # Clean salary using apply method to avoid str accessor issues
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].apply(
+                        lambda x: re.sub(r'[\$,]', '', str(x)) if pd.notna(x) else 'Not Specified'
+                    )
                 except Exception as e:
                     logger.warning(f"Could not clean salary column: {e}")
                     # Fallback: just convert to string
@@ -1175,8 +1211,10 @@ class JobCSVProcessor:
         except Exception as e:
             st.error(f"Error cleaning job data: {str(e)}")
             logger.error(f"Job data cleaning error: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
-
+    
     def tokenize_job_dataset(self) -> bool:
         """Perform job-specific tokenization of the dataset"""
         if self.processed_df is None:
