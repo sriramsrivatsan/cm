@@ -49,111 +49,97 @@ except ImportError as e:
     st.error(f"NLTK not properly installed: {str(e)}")
     NLTK_AVAILABLE = False
 
-# RAG-specific imports with USearch - FIXED dependency checking
+# RAG-specific imports with better dependency checking
 try:
     from usearch.index import Index
     USEARCH_AVAILABLE = True
-    st.sidebar.success("✅ USearch available")
 except ImportError:
     USEARCH_AVAILABLE = False
-    st.sidebar.error("❌ USearch not installed - install with: pip install usearch")
 
 try:
     from sentence_transformers import SentenceTransformer
     SENTENCE_TRANSFORMERS_AVAILABLE = True
-    st.sidebar.success("✅ SentenceTransformers available")
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
-    st.sidebar.error("❌ SentenceTransformers not installed")
 
 try:
     import tiktoken
     TIKTOKEN_AVAILABLE = True
-    st.sidebar.success("✅ tiktoken available")
 except ImportError:
     TIKTOKEN_AVAILABLE = False
-    st.sidebar.error("❌ tiktoken not installed")
 
 warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="CSV Natural Language Query RAG App v2.2 FULLY FIXED",
-    page_icon="🧠",
+    page_title="Job Data RAG Analyzer v3.0",
+    page_icon="💼",
     layout="wide"
 )
 
+
 class RAGVectorStore:
-    """COMPLETELY FIXED Vector store for RAG functionality using USearch and sentence transformers"""
+    """Fixed vector store for RAG functionality optimized for job data"""
     
     def __init__(self):
         self.embedder = None
         self.index = None
         self.documents = []
         self.metadata = []
-        self.dimension = 384  # Default for sentence transformers
+        self.dimension = 384
         self._index_built = False
         self._initialization_error = None
         
-        # Check dependencies and initialize
+        # Check dependencies
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
             self._initialization_error = "SentenceTransformers not available"
-            st.error("❌ SentenceTransformers not available. Install with: pip install sentence-transformers")
+            st.error("Install SentenceTransformers: pip install sentence-transformers")
             return
             
         if not USEARCH_AVAILABLE:
             self._initialization_error = "USearch not available"
-            st.error("❌ USearch not available. Install with: pip install usearch")
+            st.error("Install USearch: pip install usearch")
             return
         
-        # FIXED: Initialize sentence transformer with proper error handling
+        # Initialize sentence transformer
         try:
             with st.spinner("Loading sentence transformer model..."):
                 self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
-                # Get dimension correctly
                 test_embedding = self.embedder.encode(["test"], show_progress_bar=False)
-                self.dimension = len(test_embedding[0]) if len(test_embedding) > 0 else 384
-                st.success("✅ Sentence transformer loaded successfully")
+                self.dimension = len(test_embedding[0])
+                st.success("Sentence transformer loaded successfully")
                 logger.info(f"Loaded sentence transformer with dimension: {self.dimension}")
         except Exception as e:
             self._initialization_error = f"Sentence transformer error: {str(e)}"
             st.error(f"Error loading sentence transformer: {str(e)}")
-            logger.error(f"Sentence transformer loading error: {str(e)}")
-            self.embedder = None
             return
             
-        # FIXED: Initialize USearch index with proper numpy data types
+        # Initialize USearch index
         try:
             self._init_index()
-            st.success("✅ USearch index initialized successfully")
-            logger.info(f"USearch index initialized with dimension: {self.dimension}")
+            st.success("USearch index initialized successfully")
         except Exception as e:
             self._initialization_error = f"USearch error: {str(e)}"
             st.error(f"Error initializing USearch index: {str(e)}")
-            logger.error(f"USearch index initialization error: {str(e)}")
-            self.index = None
     
     def _init_index(self):
-        """FIXED: Initialize or reinitialize the USearch index with proper data types"""
+        """Initialize the USearch index with proper data types"""
         self.index = Index(
             ndim=self.dimension,
-            metric='cos',  # cosine similarity
-            dtype=np.float32  # FIXED: Use numpy.float32 instead of string 'f32'
+            metric='cos',
+            dtype=np.float32
         )
     
     def is_available(self) -> bool:
         """Check if RAG functionality is available"""
         return (self.embedder is not None and 
                 self.index is not None and 
-                USEARCH_AVAILABLE and 
-                SENTENCE_TRANSFORMERS_AVAILABLE and
                 self._initialization_error is None)
     
     def build_index(self, chunks: List[Dict]) -> bool:
-        """COMPLETELY FIXED: Build USearch index from document chunks"""
+        """Build USearch index from job data chunks"""
         if not self.is_available():
-            st.error("❌ RAG system not available. Please install required dependencies:")
-            st.code("pip install usearch sentence-transformers")
+            st.error("RAG system not available. Install required dependencies.")
             return False
             
         if not chunks:
@@ -161,22 +147,20 @@ class RAGVectorStore:
             return False
             
         try:
-            # Clear existing data and reinitialize index
+            # Clear existing data
             self.documents = []
             self.metadata = []
             self._index_built = False
-            
-            # Reinitialize index to ensure clean state
             self._init_index()
             
-            # Extract texts and prepare for embedding
+            # Extract texts for embedding
             texts = [chunk['text'] for chunk in chunks]
             
-            st.info(f"🔄 Building vector index for RAG with {len(texts)} documents...")
+            st.info(f"Building vector index for {len(texts)} job data documents...")
             progress_bar = st.progress(0)
             
-            # FIXED: Process embeddings in smaller batches with better error handling
-            batch_size = 8  # Reduced batch size for stability
+            # Process in smaller batches for stability
+            batch_size = 5
             total_processed = 0
             
             for i in range(0, len(texts), batch_size):
@@ -184,7 +168,7 @@ class RAGVectorStore:
                 batch_chunks = chunks[i:i + batch_size]
                 
                 try:
-                    # FIXED: Generate embeddings with proper error handling and data type conversion
+                    # Generate embeddings
                     embeddings = self.embedder.encode(
                         batch_texts, 
                         convert_to_tensor=False, 
@@ -192,75 +176,56 @@ class RAGVectorStore:
                         normalize_embeddings=True
                     )
                     
-                    # FIXED: Ensure embeddings are in correct format
                     if not isinstance(embeddings, np.ndarray):
                         embeddings = np.array(embeddings)
                     
-                    # FIXED: Convert to float32 and ensure correct shape
                     embeddings = embeddings.astype(np.float32)
                     
-                    # FIXED: Add each embedding individually with proper error handling
+                    # Add each embedding to index
                     for j, embedding in enumerate(embeddings):
                         doc_id = total_processed + j
                         try:
-                            # Ensure embedding is 1D and correct type
                             embedding_vector = embedding.flatten().astype(np.float32)
                             
-                            # Validate embedding dimension
                             if len(embedding_vector) != self.dimension:
                                 logger.error(f"Embedding dimension mismatch: {len(embedding_vector)} vs {self.dimension}")
                                 continue
                             
-                            # Add to index
                             self.index.add(doc_id, embedding_vector)
-                            
-                            # Store document and metadata
                             self.documents.append(batch_texts[j])
                             self.metadata.append(batch_chunks[j].get('metadata', {}))
                             
                         except Exception as add_error:
-                            logger.error(f"Error adding document {doc_id} to index: {str(add_error)}")
+                            logger.error(f"Error adding document {doc_id}: {str(add_error)}")
                             continue
                     
                     total_processed += len(embeddings)
-                    
-                    # Update progress
                     progress_bar.progress(min(1.0, total_processed / len(texts)))
-                    
-                    # Small delay to prevent overwhelming
                     time.sleep(0.05)
                     
                 except Exception as batch_error:
-                    st.error(f"Error processing batch {i//batch_size + 1}: {str(batch_error)}")
-                    logger.error(f"Batch processing error: {str(batch_error)}")
+                    st.error(f"Error processing batch: {str(batch_error)}")
                     continue
             
             if total_processed > 0:
                 self._index_built = True
-                st.success(f"✅ Vector index built successfully with {len(self.documents)} documents")
-                logger.info(f"Vector index built successfully with {len(self.documents)} documents")
+                st.success(f"Vector index built with {len(self.documents)} documents")
                 return True
             else:
-                st.error("❌ No documents were successfully indexed")
+                st.error("No documents were successfully indexed")
                 return False
             
         except Exception as e:
             st.error(f"Error building vector index: {str(e)}")
-            logger.error(f"Vector index building error: {str(e)}")
             return False
     
     def search(self, query: str, k: int = 5) -> List[Dict]:
-        """FIXED: Search for relevant documents using vector similarity"""
-        if not self.is_available():
-            st.warning("RAG search not available - missing dependencies")
-            return []
-            
-        if not self._index_built or len(self.documents) == 0:
-            st.warning("No documents indexed yet")
+        """Search for relevant documents using vector similarity"""
+        if not self.is_available() or not self._index_built:
             return []
             
         try:
-            # FIXED: Generate query embedding with proper error handling
+            # Generate query embedding
             query_embedding = self.embedder.encode(
                 [query], 
                 convert_to_tensor=False, 
@@ -268,7 +233,6 @@ class RAGVectorStore:
                 normalize_embeddings=True
             )
             
-            # FIXED: Convert to proper numpy format
             if isinstance(query_embedding, list):
                 query_embedding = np.array(query_embedding[0])
             else:
@@ -276,167 +240,198 @@ class RAGVectorStore:
             
             query_embedding = query_embedding.astype(np.float32).flatten()
             
-            # Validate query embedding dimension
             if len(query_embedding) != self.dimension:
-                logger.error(f"Query embedding dimension mismatch: {len(query_embedding)} vs {self.dimension}")
+                logger.error(f"Query embedding dimension mismatch")
                 return []
             
-            # FIXED: Perform search with proper error handling
-            try:
-                search_results = self.index.search(query_embedding, k)
-                logger.info(f"Search performed successfully")
-            except Exception as search_error:
-                logger.error(f"Search error: {search_error}")
-                return []
+            # Perform search
+            search_results = self.index.search(query_embedding, k)
             
             results = []
             
-            # FIXED: Handle USearch results with multiple format support
-            try:
-                # Handle different USearch result formats
-                if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
-                    doc_ids = search_results.keys
-                    distances = search_results.distances
-                elif isinstance(search_results, tuple) and len(search_results) == 2:
-                    doc_ids, distances = search_results
-                else:
-                    doc_ids = getattr(search_results, 'keys', [])
-                    distances = getattr(search_results, 'distances', [])
-                
-                # Convert to lists if needed
-                if hasattr(doc_ids, 'tolist'):
-                    doc_ids = doc_ids.tolist()
-                if hasattr(distances, 'tolist'):
-                    distances = distances.tolist()
-                
-                # Process results
-                for i, (doc_id, distance) in enumerate(zip(doc_ids, distances)):
-                    # Handle nested arrays
-                    if isinstance(doc_id, (list, np.ndarray)):
-                        doc_id = doc_id[0] if len(doc_id) > 0 else 0
-                    if isinstance(distance, (list, np.ndarray)):
-                        distance = distance[0] if len(distance) > 0 else 1.0
-                        
-                    doc_id = int(doc_id)
-                    distance = float(distance)
+            # Handle different USearch result formats
+            if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
+                doc_ids = search_results.keys
+                distances = search_results.distances
+            elif isinstance(search_results, tuple) and len(search_results) == 2:
+                doc_ids, distances = search_results
+            else:
+                doc_ids = getattr(search_results, 'keys', [])
+                distances = getattr(search_results, 'distances', [])
+            
+            # Convert to lists if needed
+            if hasattr(doc_ids, 'tolist'):
+                doc_ids = doc_ids.tolist()
+            if hasattr(distances, 'tolist'):
+                distances = distances.tolist()
+            
+            # Process results
+            for i, (doc_id, distance) in enumerate(zip(doc_ids, distances)):
+                if isinstance(doc_id, (list, np.ndarray)):
+                    doc_id = doc_id[0] if len(doc_id) > 0 else 0
+                if isinstance(distance, (list, np.ndarray)):
+                    distance = distance[0] if len(distance) > 0 else 1.0
                     
-                    if 0 <= doc_id < len(self.documents):
-                        # Convert cosine distance to similarity score (0=identical, 2=opposite)
-                        similarity_score = max(0.0, 1.0 - (distance / 2.0))
-                        
-                        results.append({
-                            'text': self.documents[doc_id],
-                            'score': similarity_score,
-                            'rank': i + 1,
-                            'metadata': self.metadata[doc_id] if doc_id < len(self.metadata) else {},
-                            'doc_id': doc_id,
-                            'distance': distance
-                        })
+                doc_id = int(doc_id)
+                distance = float(distance)
                 
-            except Exception as result_processing_error:
-                logger.error(f"Error processing search results: {result_processing_error}")
-                st.warning(f"Search completed but had issues processing results: {result_processing_error}")
-                return []
+                if 0 <= doc_id < len(self.documents):
+                    similarity_score = max(0.0, 1.0 - (distance / 2.0))
+                    
+                    results.append({
+                        'text': self.documents[doc_id],
+                        'score': similarity_score,
+                        'rank': i + 1,
+                        'metadata': self.metadata[doc_id] if doc_id < len(self.metadata) else {},
+                        'doc_id': doc_id,
+                        'distance': distance
+                    })
             
-            # Sort by score (highest first)
+            # Sort by score
             results.sort(key=lambda x: x['score'], reverse=True)
-            
-            logger.info(f"Search completed: {len(results)} results for query: {query[:50]}...")
             return results
             
         except Exception as e:
             st.error(f"Error during vector search: {str(e)}")
-            logger.error(f"Vector search error: {str(e)}")
             return []
     
-    def create_document_chunks(self, processed_df: pd.DataFrame, tokenized_df: pd.DataFrame, 
-                             data_summary: Dict) -> List[Dict]:
-        """Create document chunks from the processed data for vector storage"""
+    def create_document_chunks(self, processed_df: pd.DataFrame, data_summary: Dict) -> List[Dict]:
+        """Create optimized document chunks from job data"""
         if not self.is_available():
-            st.error("RAG system not available - cannot create document chunks")
             return []
             
         chunks = []
         
         try:
-            # 1. Create column-level documents
-            for col in processed_df.columns:
-                col_data = processed_df[col]
+            # 1. Create row-level job documents (main content)
+            for idx, row in processed_df.iterrows():
+                # Create comprehensive job description
+                job_text_parts = []
                 
-                # Basic column info
-                chunk_text = f"Column {col} contains {col_data.dtype} data with {col_data.nunique()} unique values."
+                # Basic job info
+                if pd.notna(row.get('company')):
+                    job_text_parts.append(f"Company: {row['company']}")
                 
-                if col_data.dtype in ['int64', 'float64']:
-                    chunk_text += f" Range: {col_data.min():.2f} to {col_data.max():.2f}, Mean: {col_data.mean():.2f}"
-                elif col_data.dtype == 'object':
-                    top_values = col_data.value_counts().head(3)
-                    chunk_text += f" Top values: {', '.join([f'{k}({v})' for k, v in top_values.items()])}"
+                if pd.notna(row.get('summary_job_title')):
+                    job_text_parts.append(f"Job Title: {row['summary_job_title']}")
+                elif pd.notna(row.get('displayed_job_title')):
+                    job_text_parts.append(f"Job Title: {row['displayed_job_title']}")
                 
-                # Add tokenization info if available
-                token_col = f"{col}_tokens"
-                if token_col in tokenized_df.columns:
-                    sample_tokens = tokenized_df[token_col].iloc[0] if len(tokenized_df) > 0 else ""
-                    if isinstance(sample_tokens, str):
-                        tokens_preview = sample_tokens.split(' | ')[:5]
-                        chunk_text += f" Sample tokens: {', '.join(tokens_preview)}"
+                # Location information
+                location_parts = []
+                if pd.notna(row.get('city_job_location')):
+                    location_parts.append(row['city_job_location'])
+                if pd.notna(row.get('state_job_location')):
+                    location_parts.append(row['state_job_location'])
+                if pd.notna(row.get('country_job_location')):
+                    location_parts.append(row['country_job_location'])
+                
+                if location_parts:
+                    job_text_parts.append(f"Location: {', '.join(location_parts)}")
+                
+                # Job description (truncated if too long)
+                if pd.notna(row.get('job_description')):
+                    desc = str(row['job_description'])[:500]  # Limit description length
+                    job_text_parts.append(f"Description: {desc}")
+                
+                # Salary information
+                if pd.notna(row.get('job_salary')):
+                    job_text_parts.append(f"Salary: {row['job_salary']}")
+                
+                # Date information
+                if pd.notna(row.get('date')):
+                    job_text_parts.append(f"Date: {row['date']}")
+                
+                job_text = ". ".join(job_text_parts)
                 
                 chunks.append({
-                    'text': chunk_text,
-                    'type': 'column_summary',
-                    'column': col,
+                    'text': job_text,
+                    'type': 'job_listing',
+                    'job_id': idx,
                     'metadata': {
-                        'data_type': str(col_data.dtype),
-                        'unique_count': int(col_data.nunique()),
-                        'null_count': int(col_data.isnull().sum())
+                        'company': str(row.get('company', 'Unknown')),
+                        'title': str(row.get('summary_job_title', row.get('displayed_job_title', 'Unknown'))),
+                        'location': ', '.join(location_parts) if location_parts else 'Unknown',
+                        'row_index': idx
                     }
                 })
             
-            # 2. Create row-level documents (sample rows for context)
-            sample_size = min(50, len(processed_df))
-            sample_df = processed_df.head(sample_size)
+            # 2. Create company-level aggregations
+            if 'company' in processed_df.columns:
+                company_groups = processed_df.groupby('company')
+                for company, group in company_groups:
+                    if pd.notna(company) and company != 'Unknown':
+                        job_count = len(group)
+                        titles = group['summary_job_title'].dropna().unique()[:5]  # Top 5 titles
+                        locations = group['city_job_location'].dropna().unique()[:3]  # Top 3 locations
+                        
+                        company_text = f"Company {company} has {job_count} job listings"
+                        if len(titles) > 0:
+                            company_text += f" for positions: {', '.join(titles)}"
+                        if len(locations) > 0:
+                            company_text += f" in locations: {', '.join(locations)}"
+                        
+                        chunks.append({
+                            'text': company_text,
+                            'type': 'company_summary',
+                            'company': company,
+                            'metadata': {
+                                'job_count': job_count,
+                                'company_name': company
+                            }
+                        })
             
-            for idx, row in sample_df.iterrows():
-                row_text = f"Data row {idx}: "
-                row_parts = []
-                
-                for col in processed_df.columns[:8]:  # Limit columns for readability
-                    value = row[col]
-                    if pd.notna(value):
-                        row_parts.append(f"{col}={value}")
-                
-                row_text += ", ".join(row_parts)
-                
-                chunks.append({
-                    'text': row_text,
-                    'type': 'data_row',
-                    'row_index': idx,
-                    'metadata': {'sample_data': True}
-                })
+            # 3. Create location-based aggregations
+            if 'city_job_location' in processed_df.columns:
+                location_groups = processed_df.groupby('city_job_location')
+                for location, group in location_groups:
+                    if pd.notna(location) and location != 'Unknown':
+                        job_count = len(group)
+                        companies = group['company'].dropna().unique()[:3]
+                        titles = group['summary_job_title'].dropna().unique()[:3]
+                        
+                        location_text = f"Location {location} has {job_count} job opportunities"
+                        if len(companies) > 0:
+                            location_text += f" from companies: {', '.join(companies)}"
+                        if len(titles) > 0:
+                            location_text += f" for roles: {', '.join(titles)}"
+                        
+                        chunks.append({
+                            'text': location_text,
+                            'type': 'location_summary',
+                            'location': location,
+                            'metadata': {
+                                'job_count': job_count,
+                                'location_name': location
+                            }
+                        })
             
-            # 3. Create statistical summary documents
-            if data_summary:
-                summary_text = f"Dataset overview: {data_summary['dataset_info']['total_rows']} rows, "
-                summary_text += f"{data_summary['dataset_info']['total_columns']} columns. "
-                
-                if 'tokenization_info' in data_summary and data_summary['tokenization_info']:
-                    token_info = data_summary['tokenization_info']['global_stats']
-                    summary_text += f"Tokenization: {token_info['total_tokens_generated']} tokens generated, "
-                    summary_text += f"{token_info['total_unique_tokens']} unique tokens, "
-                    summary_text += f"diversity score: {token_info['average_diversity_per_column']:.3f}"
-                
-                chunks.append({
-                    'text': summary_text,
-                    'type': 'dataset_summary',
-                    'metadata': {'is_summary': True}
-                })
+            # 4. Create dataset overview
+            total_jobs = len(processed_df)
+            unique_companies = processed_df['company'].nunique() if 'company' in processed_df.columns else 0
+            unique_locations = processed_df['city_job_location'].nunique() if 'city_job_location' in processed_df.columns else 0
             
-            st.info(f"Created {len(chunks)} document chunks for RAG indexing")
-            logger.info(f"Created {len(chunks)} document chunks")
+            overview_text = f"Job dataset contains {total_jobs} total job listings"
+            if unique_companies > 0:
+                overview_text += f" from {unique_companies} different companies"
+            if unique_locations > 0:
+                overview_text += f" across {unique_locations} different cities"
+            
+            chunks.append({
+                'text': overview_text,
+                'type': 'dataset_overview',
+                'metadata': {
+                    'total_jobs': total_jobs,
+                    'unique_companies': unique_companies,
+                    'unique_locations': unique_locations
+                }
+            })
+            
+            st.info(f"Created {len(chunks)} document chunks for job data indexing")
             return chunks
             
         except Exception as e:
             st.error(f"Error creating document chunks: {str(e)}")
-            logger.error(f"Document chunk creation error: {str(e)}")
             return []
     
     def get_stats(self) -> Dict:
@@ -446,11 +441,13 @@ class RAGVectorStore:
             'index_built': self._index_built,
             'document_count': len(self.documents),
             'dimension': self.dimension,
-            'metadata_count': len(self.metadata),
             'initialization_error': self._initialization_error
         }
 
-class AdvancedTokenizer:
+
+class JobDataTokenizer:
+    """Specialized tokenizer for job listing data"""
+    
     def __init__(self):
         if not NLTK_AVAILABLE:
             st.error("NLTK not available - tokenization will be limited")
@@ -467,7 +464,7 @@ class AdvancedTokenizer:
             self.stop_words = set()
 
     def tokenize_text(self, text: str, method='lemmatize') -> List[str]:
-        """Advanced text tokenization with multiple options"""
+        """Enhanced text tokenization for job descriptions"""
         if pd.isna(text) or not isinstance(text, str):
             return []
 
@@ -477,14 +474,14 @@ class AdvancedTokenizer:
             return [token for token in text.split() if len(token) > 2]
 
         try:
-            # Convert to lowercase and remove punctuation
+            # Convert to lowercase and clean
             text = text.lower()
             text = re.sub(r'[^\w\s]', ' ', text)
 
-            # Tokenize into words
+            # Tokenize
             tokens = word_tokenize(text)
 
-            # Remove stopwords
+            # Remove stopwords and short tokens
             tokens = [token for token in tokens if token not in self.stop_words and len(token) > 2]
 
             # Apply stemming or lemmatization
@@ -493,195 +490,176 @@ class AdvancedTokenizer:
             elif method == 'lemmatize' and self.lemmatizer:
                 tokens = [self.lemmatizer.lemmatize(token) for token in tokens]
 
-            # Remove empty tokens
-            tokens = [token for token in tokens if token.strip()]
-
-            return tokens
+            return [token for token in tokens if token.strip()]
+            
         except Exception as e:
             logger.error(f"Error in text tokenization: {str(e)}")
-            # Fallback tokenization
+            # Fallback
             text = re.sub(r'[^\w\s]', ' ', text.lower())
             return [token for token in text.split() if len(token) > 2]
 
-    def tokenize_numeric(self, value, column_name: str) -> List[str]:
-        """Tokenize numeric values with contextual information"""
-        if pd.isna(value):
-            return ['missing_value']
+    def tokenize_job_title(self, title: str) -> List[str]:
+        """Specialized tokenization for job titles"""
+        if pd.isna(title) or not isinstance(title, str):
+            return ['unknown_title']
 
         tokens = []
-
+        
         try:
-            # Add the raw value as string
-            tokens.append(str(value))
-
-            # Add range-based tokens for better querying
-            if isinstance(value, (int, float)):
-                abs_val = abs(value)
-
-                # Magnitude tokens
-                if abs_val == 0:
-                    tokens.extend(['zero', 'empty'])
-                elif abs_val < 1:
-                    tokens.extend(['small', 'fraction', 'decimal'])
-                elif abs_val < 10:
-                    tokens.extend(['single_digit', 'small'])
-                elif abs_val < 100:
-                    tokens.extend(['double_digit', 'medium'])
-                elif abs_val < 1000:
-                    tokens.extend(['hundreds', 'large'])
-                elif abs_val < 10000:
-                    tokens.extend(['thousands', 'very_large'])
-                else:
-                    tokens.extend(['huge', 'massive'])
-
-                # Sign tokens
-                if value > 0:
-                    tokens.append('positive')
-                elif value < 0:
-                    tokens.extend(['negative', 'minus'])
-
-                # Special number patterns
-                if value == int(value):
-                    tokens.append('integer')
-                else:
-                    tokens.extend(['decimal', 'float'])
-
-            # Add column context
-            tokens.append(f"{column_name}_value")
-
+            # Basic tokenization
+            basic_tokens = self.tokenize_text(title, method='lemmatize')
+            tokens.extend(basic_tokens)
+            
+            # Add title-specific context
+            tokens.append('job_title')
+            
+            # Add seniority level indicators
+            title_lower = title.lower()
+            if any(word in title_lower for word in ['senior', 'sr', 'lead', 'principal']):
+                tokens.extend(['senior_level', 'experienced'])
+            elif any(word in title_lower for word in ['junior', 'jr', 'entry', 'associate']):
+                tokens.extend(['junior_level', 'entry_level'])
+            elif any(word in title_lower for word in ['manager', 'director', 'head', 'chief']):
+                tokens.extend(['management', 'leadership'])
+            
+            # Add domain indicators
+            if any(word in title_lower for word in ['engineer', 'developer', 'programmer']):
+                tokens.extend(['technical', 'engineering'])
+            elif any(word in title_lower for word in ['analyst', 'data', 'research']):
+                tokens.extend(['analytical', 'data_role'])
+            elif any(word in title_lower for word in ['sales', 'marketing', 'business']):
+                tokens.extend(['business', 'commercial'])
+            elif any(word in title_lower for word in ['design', 'creative', 'ui', 'ux']):
+                tokens.extend(['creative', 'design'])
+                
         except Exception as e:
-            logger.error(f"Error tokenizing numeric value {value}: {str(e)}")
-            tokens = [str(value), f"{column_name}_value"]
+            logger.error(f"Error tokenizing job title {title}: {str(e)}")
+            tokens = ['job_title', 'unknown']
 
         return tokens
 
-    def tokenize_datetime(self, value, column_name: str) -> List[str]:
-        """Tokenize datetime values with temporal context"""
-        if pd.isna(value):
-            return ['missing_date']
+    def tokenize_company(self, company: str) -> List[str]:
+        """Tokenize company names with context"""
+        if pd.isna(company) or not isinstance(company, str):
+            return ['unknown_company']
 
         tokens = []
-
+        
         try:
-            if isinstance(value, str):
-                dt = pd.to_datetime(value)
-            else:
-                dt = value
-
-            # Basic components
-            tokens.extend([
-                str(dt.year), f"year_{dt.year}",
-                str(dt.month), f"month_{dt.month}", dt.strftime('%B').lower(),
-                str(dt.day), f"day_{dt.day}",
-                dt.strftime('%A').lower(), dt.strftime('%a').lower()
-            ])
-
-            # Quarters and seasons
-            quarter = (dt.month - 1) // 3 + 1
-            tokens.extend([f"quarter_{quarter}", f"q{quarter}"])
-
-            # Seasons (Northern Hemisphere)
-            month = dt.month
-            if month in [12, 1, 2]:
-                tokens.append('winter')
-            elif month in [3, 4, 5]:
-                tokens.append('spring')
-            elif month in [6, 7, 8]:
-                tokens.append('summer')
-            else:
-                tokens.append('autumn')
-
-            # Decade
-            decade = (dt.year // 10) * 10
-            tokens.append(f"decade_{decade}s")
-
-            # Recent vs old
-            current_year = datetime.now().year
-            if dt.year == current_year:
-                tokens.append('current_year')
-            elif dt.year == current_year - 1:
-                tokens.append('last_year')
-            elif dt.year > current_year - 5:
-                tokens.append('recent')
-            elif dt.year < current_year - 20:
-                tokens.append('old')
-
-            # Add column context
-            tokens.append(f"{column_name}_date")
-
+            # Basic tokenization
+            basic_tokens = self.tokenize_text(company, method='lemmatize')
+            tokens.extend(basic_tokens)
+            
+            # Add company context
+            tokens.append('company_name')
+            
+            # Add original cleaned name
+            clean_company = re.sub(r'[^\w\s]', '_', company.lower())
+            tokens.append(clean_company)
+            
         except Exception as e:
-            logger.error(f"Error tokenizing datetime value {value}: {str(e)}")
-            tokens = ['invalid_date', f"{column_name}_date"]
+            logger.error(f"Error tokenizing company {company}: {str(e)}")
+            tokens = ['company_name', 'unknown']
 
         return tokens
 
-    def tokenize_categorical(self, value, column_name: str, value_counts: Dict = None) -> List[str]:
-        """Tokenize categorical values with frequency context"""
-        if pd.isna(value) or value == 'Unknown':
-            return ['missing_category', 'unknown']
+    def tokenize_location(self, location: str, location_type: str = 'city') -> List[str]:
+        """Tokenize location data with geographic context"""
+        if pd.isna(location) or not isinstance(location, str):
+            return [f'unknown_{location_type}']
 
         tokens = []
-
+        
         try:
-            # Basic tokenization of the category value
-            if isinstance(value, str):
-                # Tokenize the category name itself
-                category_tokens = self.tokenize_text(value, method='lemmatize')
-                tokens.extend(category_tokens)
-
-                # Add original value (cleaned)
-                clean_value = re.sub(r'[^\w\s]', '_', str(value).lower())
-                tokens.append(clean_value)
-
-                # Add word count context
-                word_count = len(value.split())
-                if word_count == 1:
-                    tokens.append('single_word_category')
-                elif word_count > 3:
-                    tokens.append('multi_word_category')
-
-                # Add length context
-                if len(value) < 5:
-                    tokens.append('short_category')
-                elif len(value) > 20:
-                    tokens.append('long_category')
-
-            # Add frequency context if available
-            if value_counts and value in value_counts:
-                total_count = sum(value_counts.values())
-                frequency = value_counts[value] / total_count
-
-                if frequency > 0.5:
-                    tokens.append('dominant_category')
-                elif frequency > 0.1:
-                    tokens.append('common_category')
-                elif frequency < 0.01:
-                    tokens.append('rare_category')
-
-            # Add column context
-            tokens.append(f"{column_name}_category")
-
+            # Basic tokenization
+            basic_tokens = self.tokenize_text(location, method='lemmatize')
+            tokens.extend(basic_tokens)
+            
+            # Add location context
+            tokens.append(f'{location_type}_location')
+            
+            # Add cleaned location name
+            clean_location = re.sub(r'[^\w\s]', '_', location.lower())
+            tokens.append(clean_location)
+            
+            # Add geographic context based on common patterns
+            location_lower = location.lower()
+            if location_type == 'city':
+                # Add major city indicators
+                major_cities = ['new york', 'los angeles', 'chicago', 'houston', 'phoenix', 
+                              'philadelphia', 'san antonio', 'san diego', 'dallas', 'san jose',
+                              'austin', 'jacksonville', 'fort worth', 'columbus', 'charlotte']
+                if any(city in location_lower for city in major_cities):
+                    tokens.append('major_city')
+                    
         except Exception as e:
-            logger.error(f"Error tokenizing categorical value {value}: {str(e)}")
-            tokens = [str(value), f"{column_name}_category"]
+            logger.error(f"Error tokenizing location {location}: {str(e)}")
+            tokens = [f'{location_type}_location', 'unknown']
+
+        return tokens
+
+    def tokenize_salary(self, salary: str) -> List[str]:
+        """Tokenize salary information with range context"""
+        if pd.isna(salary) or not isinstance(salary, str):
+            return ['salary_unknown']
+
+        tokens = []
+        
+        try:
+            # Add basic salary context
+            tokens.append('salary_info')
+            
+            # Extract numeric values
+            numbers = re.findall(r'\d+(?:,\d{3})*(?:\.\d+)?', str(salary))
+            
+            if numbers:
+                # Convert to numeric and categorize
+                try:
+                    max_salary = max([float(num.replace(',', '')) for num in numbers])
+                    
+                    if max_salary < 40000:
+                        tokens.extend(['low_salary', 'entry_pay'])
+                    elif max_salary < 80000:
+                        tokens.extend(['medium_salary', 'mid_range_pay'])
+                    elif max_salary < 120000:
+                        tokens.extend(['high_salary', 'senior_pay'])
+                    else:
+                        tokens.extend(['very_high_salary', 'executive_pay'])
+                        
+                except ValueError:
+                    tokens.append('salary_numeric_error')
+            
+            # Check for salary type indicators
+            salary_lower = salary.lower()
+            if 'hour' in salary_lower:
+                tokens.append('hourly_rate')
+            elif any(word in salary_lower for word in ['year', 'annual', 'yearly']):
+                tokens.append('annual_salary')
+            elif any(word in salary_lower for word in ['month', 'monthly']):
+                tokens.append('monthly_salary')
+                
+        except Exception as e:
+            logger.error(f"Error tokenizing salary {salary}: {str(e)}")
+            tokens = ['salary_info', 'error']
 
         return tokens
 
 
 class ConversationManager:
-    """Manages conversation context and history for RAG queries"""
+    """Enhanced conversation manager for job data queries"""
     
     def __init__(self):
         self.conversation_history = []
-        self.max_history_length = 10  # Keep last 10 exchanges
+        self.max_history_length = 15  # Increased for job data context
         
     def add_exchange(self, question: str, answer: str, context_used: List[str] = None):
-        """Add a question-answer exchange to the conversation history"""
+        """Add a question-answer exchange to conversation history"""
         exchange = {
             'timestamp': datetime.now().isoformat(),
             'question': question,
             'answer': answer,
-            'context_used': context_used or []
+            'context_used': context_used or [],
+            'query_type': self._classify_query(question)
         }
         
         self.conversation_history.append(exchange)
@@ -690,16 +668,44 @@ class ConversationManager:
         if len(self.conversation_history) > self.max_history_length:
             self.conversation_history = self.conversation_history[-self.max_history_length:]
     
+    def _classify_query(self, question: str) -> str:
+        """Classify the type of job-related query"""
+        question_lower = question.lower()
+        
+        if any(word in question_lower for word in ['company', 'employer', 'firm']):
+            return 'company_query'
+        elif any(word in question_lower for word in ['location', 'city', 'state', 'where']):
+            return 'location_query'
+        elif any(word in question_lower for word in ['salary', 'pay', 'compensation', 'wage']):
+            return 'salary_query'
+        elif any(word in question_lower for word in ['title', 'position', 'role', 'job']):
+            return 'job_title_query'
+        elif any(word in question_lower for word in ['skill', 'requirement', 'qualification']):
+            return 'skills_query'
+        elif any(word in question_lower for word in ['summary', 'overview', 'analyze', 'insight']):
+            return 'analysis_query'
+        else:
+            return 'general_query'
+    
     def get_context_for_query(self, current_question: str) -> str:
-        """Get relevant conversation context for the current query"""
+        """Get relevant conversation context for job queries"""
         if not self.conversation_history:
             return ""
         
-        # Get last 3 exchanges for context
-        recent_history = self.conversation_history[-3:]
+        current_type = self._classify_query(current_question)
         
-        context_parts = ["Previous conversation context:"]
-        for i, exchange in enumerate(recent_history, 1):
+        # Get recent relevant exchanges
+        relevant_history = []
+        for exchange in reversed(self.conversation_history[-5:]):
+            if exchange['query_type'] == current_type or exchange['query_type'] == 'analysis_query':
+                relevant_history.append(exchange)
+        
+        if not relevant_history:
+            # Fallback to recent history
+            relevant_history = self.conversation_history[-3:]
+        
+        context_parts = ["Previous relevant conversation:"]
+        for i, exchange in enumerate(relevant_history[:3], 1):
             context_parts.append(f"Q{i}: {exchange['question'][:100]}...")
             context_parts.append(f"A{i}: {exchange['answer'][:150]}...")
         
@@ -711,42 +717,41 @@ class ConversationManager:
 
 
 class OpenAIQueryProcessor:
-    """FIXED: OpenAI query processor with proper error handling and token management"""
+    """Enhanced OpenAI processor optimized for job data analysis"""
     
     def __init__(self, api_key: str):
         self._api_key = api_key
         self.client = None
         self.tokenizer = None
         self.max_context_length = 16385
-        self.max_completion_tokens = 1500
+        self.max_completion_tokens = 2000  # Increased for job analysis
         self.max_input_tokens = self.max_context_length - self.max_completion_tokens - 100
         self._token_cache = {}
         self._initialization_error = None
         
-        # FIXED: Initialize OpenAI client with proper error handling
+        # Initialize OpenAI client
         try:
             self.client = openai.OpenAI(api_key=api_key)
-            # Test the connection with a minimal call
+            # Test connection
             test_response = self.client.models.list()
             logger.info("OpenAI client initialized successfully")
         except Exception as e:
             self._initialization_error = f"OpenAI initialization error: {str(e)}"
             st.error(f"Error initializing OpenAI client: {str(e)}")
-            logger.error(f"OpenAI client initialization error: {str(e)}")
             return
         
-        # Initialize tokenizer for gpt-3.5-turbo with error handling
+        # Initialize tokenizer for gpt-3.5-turbo
         if TIKTOKEN_AVAILABLE:
             try:
                 self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
                 logger.info("Tiktoken tokenizer initialized successfully")
             except Exception as e:
-                logger.warning(f"Failed to load tiktoken for gpt-3.5-turbo: {e}")
+                logger.warning(f"Failed to load tiktoken: {e}")
                 try:
-                    self.tokenizer = tiktoken.get_encoding("cl100k_base")  # fallback
+                    self.tokenizer = tiktoken.get_encoding("cl100k_base")
                     logger.info("Tiktoken fallback tokenizer initialized")
                 except Exception as e2:
-                    logger.error(f"Failed to load fallback tiktoken encoding: {e2}")
+                    logger.error(f"Failed to load fallback tiktoken: {e2}")
                     self.tokenizer = None
 
     def is_available(self) -> bool:
@@ -754,11 +759,10 @@ class OpenAIQueryProcessor:
         return self.client is not None and self._initialization_error is None
 
     def count_tokens(self, text: str) -> int:
-        """Count tokens in a text string with caching"""
+        """Count tokens in text with caching"""
         if not text:
             return 0
             
-        # Check cache first
         text_hash = hash(text)
         if text_hash in self._token_cache:
             return self._token_cache[text_hash]
@@ -769,9 +773,9 @@ class OpenAIQueryProcessor:
                 self._token_cache[text_hash] = token_count
                 return token_count
             except Exception as e:
-                logger.warning(f"Error counting tokens with tiktoken: {e}")
+                logger.warning(f"Error counting tokens: {e}")
 
-        # Fallback: rough approximation (1 token ≈ 0.75 words)
+        # Fallback approximation
         token_count = int(len(text.split()) * 1.3)
         self._token_cache[text_hash] = token_count
         return token_count
@@ -806,96 +810,105 @@ class OpenAIQueryProcessor:
 
         return truncated.strip() + ("..." if truncated else "")
 
-    def generate_system_prompt(self, data_summary: Dict, include_tokenization: bool = True) -> str:
-        """Generate an optimized system prompt based on the data summary and tokenization"""
+    def generate_job_system_prompt(self, data_summary: Dict) -> str:
+        """Generate system prompt optimized for job data analysis"""
         try:
-            # Start with essential information
             dataset_info = data_summary.get('dataset_info', {})
-            prompt = f"""You are an advanced data analyst assistant with access to a tokenized dataset and RAG capabilities.
+            prompt = f"""You are an expert job market analyst and career advisor with access to a comprehensive job dataset.
 
-Dataset: {dataset_info.get('total_rows', 0):,} rows × {dataset_info.get('total_columns', 0)} columns
-Columns: {', '.join(dataset_info.get('column_names', [])[:10])}{"..." if len(dataset_info.get('column_names', [])) > 10 else ""}
+Dataset Overview: {dataset_info.get('total_rows', 0):,} job listings across {dataset_info.get('total_columns', 0)} data fields
+Key Fields: Company, Job Title, Location, Salary, Job Description, Date
 
-"""
+Your expertise includes:
+- Job market analysis and trends
+- Salary benchmarking and compensation analysis
+- Geographic job distribution insights
+- Company hiring patterns
+- Career guidance and job search optimization
+- Skills and qualifications assessment
 
-            # Add tokenization summary if available and requested
-            if include_tokenization and data_summary.get('tokenization_info'):
-                token_info = data_summary['tokenization_info']
-                global_stats = token_info.get('global_stats', {})
-                prompt += f"""Tokenization: {global_stats.get('total_tokens_generated', 0):,} tokens generated, {global_stats.get('total_unique_tokens', 0):,} unique, diversity: {global_stats.get('average_diversity_per_column', 0):.2f}
+You have access to a RAG (Retrieval-Augmented Generation) system that provides relevant job data context for each query. Use this context to provide:
 
-"""
+1. **Data-driven insights**: Base responses on actual job listings in the dataset
+2. **Specific examples**: Reference actual companies, positions, and locations when relevant
+3. **Actionable advice**: Provide practical guidance for job seekers and career development
+4. **Market context**: Explain trends and patterns in the job market
+5. **Comparative analysis**: Help users understand relative opportunities and competition
 
-            # Add column details (truncated)
-            prompt += "Key Columns:\n"
-            column_details = data_summary.get('column_details', {})
-            column_count = 0
-            for col, details in column_details.items():
-                if column_count >= 15:  # Limit to prevent overflow
-                    prompt += f"... and {len(column_details) - column_count} more columns\n"
-                    break
+Instructions:
+- Always use retrieved context to support your analysis
+- Provide specific data points and examples when available
+- Maintain professional, helpful tone appropriate for career guidance
+- Focus on actionable insights that help users make informed decisions
+- Acknowledge limitations when dataset doesn't contain relevant information"""
 
-                prompt += f"\n{col} ({details.get('data_type', 'unknown')}): {details.get('unique_count', 0)} unique"
-
-                if 'min' in details:
-                    prompt += f", range: {details['min']:.1f}-{details['max']:.1f}"
-                elif 'top_values' in details:
-                    top_vals = list(details['top_values'].keys())[:2]
-                    prompt += f", top: {', '.join(map(str, top_vals))}"
-
-                # Add tokenization info if available (brief)
-                if 'tokenization' in details:
-                    token_stats = details['tokenization']
-                    prompt += f", {token_stats.get('total_tokens', 0)} tokens"
-
-                column_count += 1
-
-            prompt += """
-
-RAG Capabilities: You have access to relevant document chunks retrieved via vector search. Use this context to provide more accurate and detailed responses.
-Tokenization: Rich semantic tokenization enables pattern recognition and contextual insights.
-Conversation: Maintain context from previous exchanges to provide coherent, building responses.
-Instructions: Provide specific, actionable insights based on retrieved context and data structure."""
-
-            # Ensure system prompt fits within reasonable limits
-            max_system_tokens = int(self.max_input_tokens * 0.5)  # Reserve 50% for system prompt
+            # Ensure system prompt fits within limits
+            max_system_tokens = int(self.max_input_tokens * 0.4)
             return self.truncate_text(prompt, max_system_tokens)
             
         except Exception as e:
             logger.error(f"Error generating system prompt: {str(e)}")
-            # Fallback minimal prompt
-            return "You are a data analyst assistant. Help analyze the provided dataset."
+            return "You are a job market analyst. Help analyze the job dataset and provide career insights."
 
-    def prepare_rag_context(self, retrieved_docs: List[Dict], conversation_context: str = "") -> str:
-        """Prepare RAG context from retrieved documents and conversation history"""
+    def prepare_job_rag_context(self, retrieved_docs: List[Dict], conversation_context: str = "") -> str:
+        """Prepare RAG context optimized for job data"""
         context_parts = []
         
         try:
             if conversation_context:
-                context_parts.append(f"Conversation Context:\n{conversation_context}")
+                context_parts.append(f"Previous Conversation:\n{conversation_context}")
             
             if retrieved_docs:
-                context_parts.append("Retrieved Information:")
-                for i, doc in enumerate(retrieved_docs[:5], 1):  # Limit to top 5 results
-                    score = doc.get('score', 0)
-                    text = doc.get('text', '')
-                    context_parts.append(f"{i}. (Score: {score:.3f}) {text}")
+                context_parts.append("Relevant Job Data:")
+                
+                # Group documents by type for better organization
+                job_listings = [doc for doc in retrieved_docs if doc.get('metadata', {}).get('company')]
+                company_summaries = [doc for doc in retrieved_docs if 'company_summary' in doc.get('text', '')]
+                location_summaries = [doc for doc in retrieved_docs if 'location' in doc.get('text', '')]
+                other_docs = [doc for doc in retrieved_docs if doc not in job_listings + company_summaries + location_summaries]
+                
+                # Add job listings first (most important)
+                if job_listings:
+                    context_parts.append("\nSpecific Job Listings:")
+                    for i, doc in enumerate(job_listings[:3], 1):
+                        score = doc.get('score', 0)
+                        metadata = doc.get('metadata', {})
+                        context_parts.append(f"{i}. [Score: {score:.3f}] {doc.get('text', '')}")
+                        if metadata.get('company'):
+                            context_parts.append(f"   Company: {metadata['company']}, Location: {metadata.get('location', 'N/A')}")
+                
+                # Add company summaries
+                if company_summaries:
+                    context_parts.append("\nCompany Information:")
+                    for doc in company_summaries[:2]:
+                        context_parts.append(f"• {doc.get('text', '')}")
+                
+                # Add location summaries
+                if location_summaries:
+                    context_parts.append("\nLocation Insights:")
+                    for doc in location_summaries[:2]:
+                        context_parts.append(f"• {doc.get('text', '')}")
+                
+                # Add other relevant information
+                if other_docs:
+                    context_parts.append("\nAdditional Context:")
+                    for doc in other_docs[:2]:
+                        context_parts.append(f"• {doc.get('text', '')}")
             
-            full_context = "\n\n".join(context_parts)
+            full_context = "\n".join(context_parts)
             
-            # Reserve space for RAG context (30% of input tokens)
-            max_context_tokens = int(self.max_input_tokens * 0.3)
+            # Reserve space for RAG context
+            max_context_tokens = int(self.max_input_tokens * 0.5)
             return self.truncate_text(full_context, max_context_tokens)
             
         except Exception as e:
             logger.error(f"Error preparing RAG context: {str(e)}")
             return ""
 
-    def query_data_with_rag(self, question: str, data_summary: Dict, vector_store: RAGVectorStore, 
-                           conversation_manager: ConversationManager) -> str:
-        """FIXED: Process natural language query with RAG and conversation context"""
+    def query_job_data_with_rag(self, question: str, data_summary: Dict, vector_store: RAGVectorStore, 
+                               conversation_manager: ConversationManager) -> str:
+        """Process job-related queries with RAG enhancement"""
         
-        # Check if client is available
         if not self.is_available():
             return f"OpenAI client not available: {self._initialization_error}"
         
@@ -903,47 +916,45 @@ Instructions: Provide specific, actionable insights based on retrieved context a
             # Get conversation context
             conversation_context = conversation_manager.get_context_for_query(question)
             
-            # Retrieve relevant documents using vector search
+            # Retrieve relevant job documents
             retrieved_docs = []
             try:
-                retrieved_docs = vector_store.search(question, k=5)
-                logger.info(f"Retrieved {len(retrieved_docs)} documents for query")
+                retrieved_docs = vector_store.search(question, k=8)  # More docs for job analysis
+                logger.info(f"Retrieved {len(retrieved_docs)} job documents for query")
             except Exception as search_error:
                 logger.warning(f"Vector search failed: {search_error}")
-                # Continue without RAG context
             
-            # Generate optimized system prompt
-            system_prompt = self.generate_system_prompt(data_summary, include_tokenization=True)
+            # Generate job-specific system prompt
+            system_prompt = self.generate_job_system_prompt(data_summary)
             
-            # Prepare RAG context
-            rag_context = self.prepare_rag_context(retrieved_docs, conversation_context)
+            # Prepare job-specific RAG context
+            rag_context = self.prepare_job_rag_context(retrieved_docs, conversation_context)
             
             # Create user message
             user_message = f"Question: {question}"
             if rag_context:
-                user_message += f"\n\nRelevant Context:\n{rag_context}"
+                user_message += f"\n\nRelevant Job Data Context:\n{rag_context}"
             
-            # Final token check and adjustment
+            # Token management
             system_tokens = self.count_tokens(system_prompt)
             user_tokens = self.count_tokens(user_message)
             
             total_input_tokens = system_tokens + user_tokens
             
             if total_input_tokens > self.max_input_tokens:
-                # Reduce context further if needed
                 excess_tokens = total_input_tokens - self.max_input_tokens
                 if rag_context:
                     current_context_tokens = self.count_tokens(rag_context)
-                    reduced_context_tokens = max(200, current_context_tokens - excess_tokens)
+                    reduced_context_tokens = max(300, current_context_tokens - excess_tokens)
                     rag_context = self.truncate_text(rag_context, reduced_context_tokens)
-                    user_message = f"Question: {question}\n\nRelevant Context:\n{rag_context}"
+                    user_message = f"Question: {question}\n\nRelevant Job Data Context:\n{rag_context}"
             
-            # Adjust completion tokens based on remaining context
+            # Calculate available completion tokens
             final_input_tokens = self.count_tokens(system_prompt) + self.count_tokens(user_message)
             available_tokens = self.max_context_length - final_input_tokens - 100
-            completion_tokens = min(self.max_completion_tokens, max(300, available_tokens))
+            completion_tokens = min(self.max_completion_tokens, max(500, available_tokens))
             
-            # FIXED: Make API call with proper error handling
+            # Make API call
             try:
                 response = self.client.chat.completions.create(
                     model="gpt-3.5-turbo",
@@ -953,7 +964,7 @@ Instructions: Provide specific, actionable insights based on retrieved context a
                     ],
                     max_tokens=completion_tokens,
                     temperature=0.7,
-                    timeout=30  # Add timeout
+                    timeout=30
                 )
                 
                 answer = response.choices[0].message.content
@@ -962,7 +973,7 @@ Instructions: Provide specific, actionable insights based on retrieved context a
                 context_used = [doc['text'][:100] + "..." for doc in retrieved_docs[:3]]
                 conversation_manager.add_exchange(question, answer, context_used)
                 
-                logger.info(f"Successfully processed RAG query: {question[:50]}...")
+                logger.info(f"Successfully processed job query: {question[:50]}...")
                 return answer
                 
             except openai.APIError as api_error:
@@ -982,37 +993,34 @@ Instructions: Provide specific, actionable insights based on retrieved context a
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Error in RAG query processing: {error_msg}")
+            logger.error(f"Error in job RAG query processing: {error_msg}")
             
             if "maximum context length" in error_msg.lower():
-                return """I apologize, but the dataset is too large to analyze in a single query.
+                return """The query is too complex for a single analysis. Please try:
+1. Ask more specific questions about particular companies or locations
+2. Focus on specific aspects like salary ranges or job titles
+3. Break down your analysis into smaller, focused questions
 
-Please try:
-1. Ask more specific questions about particular columns
-2. Use the token search feature to find specific patterns
-3. Focus on summary statistics rather than detailed analysis
-
-The dataset has been successfully processed and tokenized with RAG capabilities - you can explore it using more targeted queries."""
+The job dataset has been successfully processed with RAG capabilities - you can explore it using more targeted queries."""
             else:
                 return f"Error processing query: {error_msg}. Please try a simpler question or check your OpenAI API key."
 
-
-class CSVProcessor:
+class JobCSVProcessor:
+    """Enhanced CSV processor specifically optimized for job listing data"""
+    
     def __init__(self):
         self.df = None
         self.processed_df = None
         self.tokenized_df = None
         self.data_summary = None
         self.tokenization_summary = None
-        self.tokenizer = AdvancedTokenizer()
-        # RAG components - FIXED initialization
+        self.tokenizer = JobDataTokenizer()
         self.vector_store = RAGVectorStore()
         self.conversation_manager = ConversationManager()
 
     def load_csv(self, uploaded_file) -> bool:
-        """Load and initially process the CSV file"""
+        """Load and validate job data CSV"""
         try:
-            # Try different encodings
             encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
 
             for encoding in encodings:
@@ -1030,14 +1038,30 @@ class CSVProcessor:
             if self.df is None:
                 raise ValueError("Could not read file with any supported encoding")
 
-            # Basic validation
+            # Validate job data structure
             if self.df.empty:
                 raise ValueError("CSV file is empty")
                 
             if len(self.df.columns) == 0:
                 raise ValueError("CSV file has no columns")
 
-            logger.info(f"Loaded CSV: {len(self.df)} rows, {len(self.df.columns)} columns")
+            # Check for expected job data columns
+            expected_columns = ['company', 'job', 'title', 'description', 'location', 'salary']
+            found_columns = []
+            
+            for col in self.df.columns:
+                col_lower = col.lower().replace(' ', '_')
+                for expected in expected_columns:
+                    if expected in col_lower:
+                        found_columns.append(expected)
+                        break
+
+            if len(found_columns) < 3:
+                st.warning("This doesn't appear to be a typical job dataset. Proceeding with general processing.")
+            else:
+                st.success(f"Detected job dataset with columns: {', '.join(found_columns)}")
+
+            logger.info(f"Loaded job CSV: {len(self.df)} rows, {len(self.df.columns)} columns")
             return True
             
         except Exception as e:
@@ -1045,8 +1069,8 @@ class CSVProcessor:
             logger.error(f"CSV loading error: {str(e)}")
             return False
 
-    def clean_data(self) -> bool:
-        """Clean and preprocess the data"""
+    def clean_job_data(self) -> bool:
+        """Clean and preprocess job data with domain-specific logic"""
         if self.df is None:
             st.error("No data loaded")
             return False
@@ -1054,82 +1078,112 @@ class CSVProcessor:
         try:
             self.processed_df = self.df.copy()
 
-            # Clean column names
-            original_columns = self.processed_df.columns.tolist()
-            cleaned_columns = []
-            
+            # Standardize column names for job data
+            column_mapping = {}
             for col in self.processed_df.columns:
-                # Clean column name
+                original_col = col
                 clean_col = re.sub(r'[^\w\s]', '', str(col)).strip().replace(' ', '_').lower()
-                # Ensure unique column names
-                if clean_col in cleaned_columns:
-                    counter = 1
-                    while f"{clean_col}_{counter}" in cleaned_columns:
-                        counter += 1
-                    clean_col = f"{clean_col}_{counter}"
-                cleaned_columns.append(clean_col)
-            
-            self.processed_df.columns = cleaned_columns
+                
+                # Map to standard job data column names
+                if any(word in clean_col for word in ['company', 'employer', 'firm']):
+                    clean_col = 'company'
+                elif any(word in clean_col for word in ['summary', 'job', 'title']) and 'title' in clean_col:
+                    clean_col = 'summary_job_title'
+                elif any(word in clean_col for word in ['displayed', 'job', 'title']) and 'title' in clean_col:
+                    clean_col = 'displayed_job_title'
+                elif 'description' in clean_col:
+                    clean_col = 'job_description'
+                elif any(word in clean_col for word in ['city', 'location']):
+                    clean_col = 'city_job_location'
+                elif any(word in clean_col for word in ['state', 'location']):
+                    clean_col = 'state_job_location'
+                elif any(word in clean_col for word in ['country', 'location']):
+                    clean_col = 'country_job_location'
+                elif 'detailed' in clean_col and 'location' in clean_col:
+                    clean_col = 'detailed_job_location'
+                elif 'salary' in clean_col:
+                    clean_col = 'job_salary'
+                elif 'source' in clean_col:
+                    clean_col = 'source'
+                elif 'date' in clean_col:
+                    clean_col = 'date'
+                elif 'id' in clean_col:
+                    clean_col = 'id'
+                
+                column_mapping[original_col] = clean_col
 
-            # Handle missing values with better logic
+            # Apply column name mapping
+            self.processed_df = self.processed_df.rename(columns=column_mapping)
+
+            # Handle missing values with job-specific logic
             for col in self.processed_df.columns:
-                if self.processed_df[col].dtype == 'object':
-                    # For object columns, fill with 'Unknown'
+                if col in ['company', 'summary_job_title', 'displayed_job_title']:
+                    # For critical job fields, use 'Unknown' instead of dropping
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown')
+                elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
+                    # For location fields
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown')
+                elif col == 'job_salary':
+                    # For salary, use 'Not Specified'
+                    self.processed_df[col] = self.processed_df[col].fillna('Not Specified')
+                elif col == 'job_description':
+                    # For descriptions, use 'No description provided'
+                    self.processed_df[col] = self.processed_df[col].fillna('No description provided')
+                elif self.processed_df[col].dtype == 'object':
                     self.processed_df[col] = self.processed_df[col].fillna('Unknown')
                 else:
-                    # For numeric columns, use median if available, otherwise 0
+                    # For numeric columns
                     median_val = self.processed_df[col].median()
                     fill_value = median_val if pd.notna(median_val) else 0
                     self.processed_df[col] = self.processed_df[col].fillna(fill_value)
 
-            # Convert data types more carefully
-            for col in self.processed_df.columns:
-                if self.processed_df[col].dtype == 'object':
-                    # Try to convert to datetime first
-                    try:
-                        # Sample a few non-null values to test datetime conversion
-                        sample_values = self.processed_df[col].dropna().head(10)
-                        if len(sample_values) > 0:
-                            pd.to_datetime(sample_values, errors='raise', infer_datetime_format=True)
-                            self.processed_df[col] = pd.to_datetime(self.processed_df[col], errors='coerce')
-                            # Fill any failed conversions
-                            self.processed_df[col] = self.processed_df[col].fillna(pd.Timestamp('1900-01-01'))
-                    except:
-                        # Try to convert to numeric
-                        try:
-                            # Test conversion on sample
-                            sample_values = self.processed_df[col].dropna().head(10)
-                            if len(sample_values) > 0:
-                                pd.to_numeric(sample_values, errors='raise')
-                                self.processed_df[col] = pd.to_numeric(self.processed_df[col], errors='coerce')
-                                # Fill any failed conversions
-                                median_val = self.processed_df[col].median()
-                                fill_value = median_val if pd.notna(median_val) else 0
-                                self.processed_df[col] = self.processed_df[col].fillna(fill_value)
-                        except:
-                            pass  # Keep as string
+            # Clean text fields specifically
+            text_columns = ['company', 'summary_job_title', 'displayed_job_title', 'job_description', 
+                          'city_job_location', 'state_job_location', 'country_job_location']
+            
+            for col in text_columns:
+                if col in self.processed_df.columns:
+                    # Remove extra whitespace and standardize
+                    self.processed_df[col] = self.processed_df[col].astype(str).str.strip()
+                    # Replace multiple spaces with single space
+                    self.processed_df[col] = self.processed_df[col].str.replace(r'\s+', ' ', regex=True)
 
-            logger.info(f"Data cleaning completed: {len(self.processed_df)} rows, {len(self.processed_df.columns)} columns")
+            # Try to convert date column if present
+            if 'date' in self.processed_df.columns:
+                try:
+                    self.processed_df['date'] = pd.to_datetime(self.processed_df['date'], errors='coerce')
+                    # Fill failed conversions with a default date
+                    self.processed_df['date'] = self.processed_df['date'].fillna(pd.Timestamp('2023-01-01'))
+                except Exception as e:
+                    logger.warning(f"Could not convert date column: {e}")
+
+            # Clean salary information
+            if 'job_salary' in self.processed_df.columns:
+                # Standardize salary formats
+                self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
+                self.processed_df['job_salary'] = self.processed_df['job_salary'].str.replace(r'[\$,]', '', regex=True)
+
+            logger.info(f"Job data cleaning completed: {len(self.processed_df)} rows, {len(self.processed_df.columns)} columns")
             return True
             
         except Exception as e:
-            st.error(f"Error cleaning data: {str(e)}")
-            logger.error(f"Data cleaning error: {str(e)}")
+            st.error(f"Error cleaning job data: {str(e)}")
+            logger.error(f"Job data cleaning error: {str(e)}")
             return False
 
-    def tokenize_dataset(self) -> bool:
-        """Perform comprehensive tokenization of the entire dataset"""
+    def tokenize_job_dataset(self) -> bool:
+        """Perform job-specific tokenization of the dataset"""
         if self.processed_df is None:
             st.error("No processed data available")
             return False
 
         try:
-            st.info("🔄 Starting comprehensive tokenization process...")
+            st.info("Starting job-specific tokenization process...")
 
-            # Initialize tokenized dataframe with original data
+            # Initialize tokenized dataframe
             self.tokenized_df = self.processed_df.copy()
 
-            # Dictionary to store all tokens for summary
+            # Dictionary to store tokenization results
             all_tokens = {}
             column_token_stats = {}
 
@@ -1143,30 +1197,59 @@ class CSVProcessor:
                 token_column_name = f"{col}_tokens"
 
                 try:
-                    # Determine column type and tokenize accordingly
-                    if self.processed_df[col].dtype in ['int64', 'float64']:
-                        # Numeric tokenization
+                    # Job-specific tokenization based on column type
+                    if col == 'company':
+                        # Company name tokenization
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_numeric(value, col)
+                            tokens = self.tokenizer.tokenize_company(value)
+                            column_tokens.extend(tokens)
+
+                    elif col in ['summary_job_title', 'displayed_job_title']:
+                        # Job title tokenization
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_job_title(value)
+                            column_tokens.extend(tokens)
+
+                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
+                        # Location tokenization
+                        location_type = col.split('_')[0]  # Extract 'city', 'state', or 'country'
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_location(value, location_type)
+                            column_tokens.extend(tokens)
+
+                    elif col == 'job_salary':
+                        # Salary tokenization
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_salary(value)
+                            column_tokens.extend(tokens)
+
+                    elif col == 'job_description':
+                        # Job description tokenization (text analysis)
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_text(value, method='lemmatize')
                             column_tokens.extend(tokens)
 
                     elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
-                        # Datetime tokenization
+                        # Date tokenization (if applicable)
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_datetime(value, col)
-                            column_tokens.extend(tokens)
+                            try:
+                                date_str = str(value)
+                                tokens = self.tokenizer.tokenize_text(date_str)
+                                tokens.extend(['date_field', f'{col}_date'])
+                                column_tokens.extend(tokens)
+                            except:
+                                column_tokens.extend(['date_field', 'unknown_date'])
 
                     else:
-                        # Categorical/Text tokenization
-                        value_counts = self.processed_df[col].value_counts().to_dict()
+                        # General text tokenization for other fields
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_categorical(value, col, value_counts)
+                            tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
                             column_tokens.extend(tokens)
 
                     # Store tokens for this column
                     all_tokens[col] = column_tokens
 
-                    # Calculate token statistics for this column
+                    # Calculate token statistics
                     unique_tokens = set(column_tokens)
                     column_token_stats[col] = {
                         'total_tokens': len(column_tokens),
@@ -1175,20 +1258,29 @@ class CSVProcessor:
                         'token_diversity': len(unique_tokens) / len(column_tokens) if column_tokens else 0
                     }
 
-                    # Add tokenized column to dataframe (store as string for display)
+                    # Create tokenized column for display
                     token_lists = []
-                    if self.processed_df[col].dtype in ['int64', 'float64']:
+                    
+                    if col == 'company':
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_numeric(value, col)
+                            tokens = self.tokenizer.tokenize_company(value)
                             token_lists.append(' | '.join(tokens))
-                    elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
+                    elif col in ['summary_job_title', 'displayed_job_title']:
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_datetime(value, col)
+                            tokens = self.tokenizer.tokenize_job_title(value)
+                            token_lists.append(' | '.join(tokens))
+                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
+                        location_type = col.split('_')[0]
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_location(value, location_type)
+                            token_lists.append(' | '.join(tokens))
+                    elif col == 'job_salary':
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_salary(value)
                             token_lists.append(' | '.join(tokens))
                     else:
-                        value_counts = self.processed_df[col].value_counts().to_dict()
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_categorical(value, col, value_counts)
+                            tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
                             token_lists.append(' | '.join(tokens))
 
                     self.tokenized_df[token_column_name] = token_lists
@@ -1207,7 +1299,7 @@ class CSVProcessor:
                 # Update progress
                 progress_bar.progress((idx + 1) / total_columns)
 
-            # Create comprehensive tokenization summary
+            # Create job-specific tokenization summary
             valid_stats = {k: v for k, v in column_token_stats.items() if v['total_tokens'] > 0}
             
             self.tokenization_summary = {
@@ -1219,58 +1311,61 @@ class CSVProcessor:
                     'total_unique_tokens': len(set([token for tokens in all_tokens.values() for token in tokens])),
                     'average_tokens_per_column': np.mean([stats['total_tokens'] for stats in valid_stats.values()]) if valid_stats else 0,
                     'average_diversity_per_column': np.mean([stats['token_diversity'] for stats in valid_stats.values()]) if valid_stats else 0
+                },
+                'job_specific_insights': {
+                    'companies_tokenized': len(all_tokens.get('company', [])),
+                    'job_titles_tokenized': len(all_tokens.get('summary_job_title', [])) + len(all_tokens.get('displayed_job_title', [])),
+                    'locations_tokenized': len(all_tokens.get('city_job_location', [])) + len(all_tokens.get('state_job_location', [])),
+                    'salary_tokens': len(all_tokens.get('job_salary', []))
                 }
             }
 
-            st.success("✅ Tokenization completed successfully!")
-            logger.info(f"Tokenization completed: {len(valid_stats)} successful columns")
+            st.success("Job-specific tokenization completed successfully!")
+            logger.info(f"Job tokenization completed: {len(valid_stats)} successful columns")
             return True
             
         except Exception as e:
-            st.error(f"Error during tokenization: {str(e)}")
-            logger.error(f"Tokenization error: {str(e)}")
+            st.error(f"Error during job tokenization: {str(e)}")
+            logger.error(f"Job tokenization error: {str(e)}")
             return False
     
-    def build_rag_index(self) -> bool:
-        """FIXED: Build RAG vector index from processed data"""
+    def build_job_rag_index(self) -> bool:
+        """Build RAG vector index optimized for job data"""
         if self.processed_df is None or self.tokenized_df is None:
-            st.error("❌ Please process and tokenize data first")
+            st.error("Please process and tokenize job data first")
             return False
         
         try:
-            st.info("🧠 Building RAG vector index...")
+            st.info("Building job-specific RAG vector index...")
             
             # Generate data summary if not already done
             if self.data_summary is None:
-                self.generate_data_summary()
+                self.generate_job_data_summary()
             
-            # Create document chunks
-            chunks = self.vector_store.create_document_chunks(
-                self.processed_df, 
-                self.tokenized_df, 
-                self.data_summary
-            )
+            # Create job-specific document chunks
+            chunks = self.vector_store.create_document_chunks(self.processed_df, self.data_summary)
             
-            # Build vector index with enhanced error handling
+            # Build vector index
             if chunks and self.vector_store.build_index(chunks):
-                st.success("✅ RAG index built successfully!")
-                logger.info("RAG index built successfully")
+                st.success("Job RAG index built successfully!")
+                logger.info("Job RAG index built successfully")
                 return True
             else:
-                st.error("❌ Failed to build RAG index - no valid chunks created")
+                st.error("Failed to build job RAG index")
                 return False
                 
         except Exception as e:
-            st.error(f"Error building RAG index: {str(e)}")
-            logger.error(f"RAG index building error: {str(e)}")
+            st.error(f"Error building job RAG index: {str(e)}")
+            logger.error(f"Job RAG index building error: {str(e)}")
             return False
 
-    def generate_data_summary(self) -> Optional[Dict]:
-        """Generate a comprehensive summary of the data for the AI"""
+    def generate_job_data_summary(self) -> Optional[Dict]:
+        """Generate comprehensive summary optimized for job data"""
         if self.processed_df is None:
             return None
 
         try:
+            # Basic dataset info
             summary = {
                 "dataset_info": {
                     "total_rows": len(self.processed_df),
@@ -1278,9 +1373,11 @@ class CSVProcessor:
                     "column_names": list(self.processed_df.columns)
                 },
                 "column_details": {},
-                "tokenization_info": self.tokenization_summary if self.tokenization_summary else None
+                "tokenization_info": self.tokenization_summary if self.tokenization_summary else None,
+                "job_market_insights": {}
             }
 
+            # Analyze each column with job-specific insights
             for col in self.processed_df.columns:
                 try:
                     col_info = {
@@ -1289,7 +1386,39 @@ class CSVProcessor:
                         "unique_count": int(self.processed_df[col].nunique())
                     }
 
-                    if self.processed_df[col].dtype in ['int64', 'float64']:
+                    # Add job-specific analysis
+                    if col == 'company':
+                        top_companies = self.processed_df[col].value_counts().head(5)
+                        col_info.update({
+                            "top_companies": {str(k): int(v) for k, v in top_companies.to_dict().items()},
+                            "total_unique_companies": int(self.processed_df[col].nunique())
+                        })
+
+                    elif col in ['summary_job_title', 'displayed_job_title']:
+                        top_titles = self.processed_df[col].value_counts().head(5)
+                        col_info.update({
+                            "top_job_titles": {str(k): int(v) for k, v in top_titles.to_dict().items()},
+                            "total_unique_titles": int(self.processed_df[col].nunique())
+                        })
+
+                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
+                        top_locations = self.processed_df[col].value_counts().head(5)
+                        col_info.update({
+                            "top_locations": {str(k): int(v) for k, v in top_locations.to_dict().items()},
+                            "total_unique_locations": int(self.processed_df[col].nunique())
+                        })
+
+                    elif col == 'job_salary':
+                        # Analyze salary data
+                        salary_series = self.processed_df[col].astype(str)
+                        non_empty_salaries = salary_series[salary_series != 'Not Specified']
+                        col_info.update({
+                            "salary_specified_count": len(non_empty_salaries),
+                            "salary_not_specified_count": len(salary_series) - len(non_empty_salaries),
+                            "sample_salaries": list(non_empty_salaries.head(5))
+                        })
+
+                    elif self.processed_df[col].dtype in ['int64', 'float64']:
                         col_info.update({
                             "min": float(self.processed_df[col].min()),
                             "max": float(self.processed_df[col].max()),
@@ -1297,259 +1426,337 @@ class CSVProcessor:
                             "median": float(self.processed_df[col].median())
                         })
 
-                        # Add tokenization info if available
-                        if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
-                            col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
-
-                    elif self.processed_df[col].dtype == 'object':
-                        # Get top 5 most common values
-                        top_values = self.processed_df[col].value_counts().head(5)
-                        col_info["top_values"] = {str(k): int(v) for k, v in top_values.to_dict().items()}
-
-                        # Add tokenization info if available
-                        if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
-                            col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
-                            
+                    # Add tokenization info if available
+                    if self.tokenization_summary and col in self.tokenization_summary['column_stats']:
+                        col_info['tokenization'] = self.tokenization_summary['column_stats'][col]
+                        
                     summary["column_details"][col] = col_info
                     
                 except Exception as col_error:
                     logger.warning(f"Error processing column {col}: {str(col_error)}")
-                    # Add minimal info for failed column
                     summary["column_details"][col] = {
                         "data_type": str(self.processed_df[col].dtype),
                         "error": str(col_error)
                     }
 
+            # Generate job market insights
+            try:
+                insights = {}
+                
+                # Company distribution
+                if 'company' in self.processed_df.columns:
+                    company_counts = self.processed_df['company'].value_counts()
+                    insights['company_distribution'] = {
+                        'total_companies': len(company_counts),
+                        'top_hiring_company': company_counts.index[0] if len(company_counts) > 0 else 'Unknown',
+                        'max_jobs_by_company': int(company_counts.iloc[0]) if len(company_counts) > 0 else 0
+                    }
+                
+                # Location distribution
+                if 'city_job_location' in self.processed_df.columns:
+                    location_counts = self.processed_df['city_job_location'].value_counts()
+                    insights['location_distribution'] = {
+                        'total_cities': len(location_counts),
+                        'top_job_city': location_counts.index[0] if len(location_counts) > 0 else 'Unknown',
+                        'max_jobs_by_city': int(location_counts.iloc[0]) if len(location_counts) > 0 else 0
+                    }
+                
+                # Job title analysis
+                if 'summary_job_title' in self.processed_df.columns:
+                    title_counts = self.processed_df['summary_job_title'].value_counts()
+                    insights['job_title_distribution'] = {
+                        'total_unique_titles': len(title_counts),
+                        'most_common_title': title_counts.index[0] if len(title_counts) > 0 else 'Unknown',
+                        'max_occurrences': int(title_counts.iloc[0]) if len(title_counts) > 0 else 0
+                    }
+                
+                summary['job_market_insights'] = insights
+                
+            except Exception as insights_error:
+                logger.warning(f"Error generating job market insights: {str(insights_error)}")
+                summary['job_market_insights'] = {'error': str(insights_error)}
+
             self.data_summary = summary
-            logger.info("Data summary generated successfully")
+            logger.info("Job data summary generated successfully")
             return summary
             
         except Exception as e:
-            st.error(f"Error generating data summary: {str(e)}")
-            logger.error(f"Data summary generation error: {str(e)}")
+            st.error(f"Error generating job data summary: {str(e)}")
+            logger.error(f"Job data summary generation error: {str(e)}")
             return None
 
-
 def main():
-    st.title("Advanced CSV Natural Language Query RAG App v2.2 - COMPLETELY FIXED")
-    st.markdown("Upload a CSV file and ask questions about your data with **RAG (Retrieval-Augmented Generation)**, **comprehensive tokenization**, and **conversation context** for enhanced natural language understanding!")
+    st.title("Job Data RAG Analyzer v3.0 - Optimized for Job Listings")
+    st.markdown("Upload your job dataset CSV and ask intelligent questions with **RAG (Retrieval-Augmented Generation)** and **job-specific tokenization**!")
     
-    # Version indicator
-    st.sidebar.markdown("### Version 2.2 - COMPLETELY FIXED")
-    st.sidebar.markdown("**All Critical Issues Resolved:**")
-    st.sidebar.markdown("• Fixed numpy data type error (f32 → np.float32)")
-    st.sidebar.markdown("• Fixed USearch batch indexing and search result handling")
-    st.sidebar.markdown("• Enhanced error handling and graceful fallbacks")
-    st.sidebar.markdown("• Improved embedding processing and memory management")
-    st.sidebar.markdown("• Fixed vector similarity scoring")
-    st.sidebar.markdown("• Added comprehensive logging and debugging")
+    # Sidebar status and configuration
+    with st.sidebar:
+        st.header("System Status")
+        
+        # Dependency status
+        dep_status = []
+        if USEARCH_AVAILABLE:
+            dep_status.append("✅ USearch (Vector Search)")
+        else:
+            dep_status.append("❌ USearch - pip install usearch")
+            
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            dep_status.append("✅ SentenceTransformers")
+        else:
+            dep_status.append("❌ SentenceTransformers - pip install sentence-transformers")
+            
+        if TIKTOKEN_AVAILABLE:
+            dep_status.append("✅ tiktoken")
+        else:
+            dep_status.append("❌ tiktoken - pip install tiktoken")
+            
+        if NLTK_AVAILABLE:
+            dep_status.append("✅ NLTK")
+        else:
+            dep_status.append("❌ NLTK")
+            
+        for status in dep_status:
+            if "✅" in status:
+                st.success(status)
+            else:
+                st.error(status)
 
-    # Check dependencies with better error reporting
-    missing_deps = []
-    if not USEARCH_AVAILABLE:
-        missing_deps.append("usearch")
-        st.warning("USearch not installed. Vector search will be limited. Install with: pip install usearch")
-    if not SENTENCE_TRANSFORMERS_AVAILABLE:
-        missing_deps.append("sentence-transformers")
-        st.warning("SentenceTransformers not installed. Install with: pip install sentence-transformers")
-    if not TIKTOKEN_AVAILABLE:
-        missing_deps.append("tiktoken")
-        st.warning("tiktoken not installed. Token management will use approximations. Install with: pip install tiktoken")
+        st.markdown("---")
+        st.header("Configuration")
 
-    if missing_deps:
-        st.error(f"Missing dependencies: {', '.join(missing_deps)}")
-        st.code(f"pip install {' '.join(missing_deps)}")
+        # OpenAI API Key
+        api_key = st.text_input("OpenAI API Key", type="password",
+                               help="Enter your OpenAI API key for RAG-enhanced queries")
+
+        st.markdown("---")
+        st.header("RAG Settings")
+        
+        rag_k_results = st.slider("Retrieved Documents", 3, 15, 8, 
+                                 help="Number of relevant job documents to retrieve")
+        
+        maintain_context = st.checkbox("Maintain Conversation Context", value=True,
+                                      help="Keep context from previous job-related questions")
 
     # Check NLTK data
     if not download_nltk_data():
         st.error("Failed to download required NLTK data. Some tokenization features may not work properly.")
 
     # Initialize session state
-    if 'processor' not in st.session_state:
-        st.session_state.processor = CSVProcessor()
+    if 'job_processor' not in st.session_state:
+        st.session_state.job_processor = JobCSVProcessor()
     if 'openai_processor' not in st.session_state:
         st.session_state.openai_processor = None
     if 'rag_ready' not in st.session_state:
         st.session_state.rag_ready = False
 
-    # Sidebar for configuration
-    with st.sidebar:
-        st.header("Configuration")
+    # Configure OpenAI if API key provided
+    if api_key:
+        try:
+            st.session_state.openai_processor = OpenAIQueryProcessor(api_key)
+            if st.session_state.openai_processor.is_available():
+                st.sidebar.success("✅ OpenAI API configured")
+            else:
+                st.sidebar.error(f"❌ OpenAI error: {st.session_state.openai_processor._initialization_error}")
+        except Exception as e:
+            st.sidebar.error(f"❌ OpenAI error: {str(e)}")
+    else:
+        st.sidebar.warning("⚠️ Enter OpenAI API key for enhanced analysis")
 
-        # OpenAI API Key
-        api_key = st.text_input("OpenAI API Key", type="password",
-                               help="Enter your OpenAI API key")
-
-        if api_key:
-            try:
-                st.session_state.openai_processor = OpenAIQueryProcessor(api_key)
-                if st.session_state.openai_processor.is_available():
-                    st.success("OpenAI API configured")
-                else:
-                    st.error(f"OpenAI configuration failed: {st.session_state.openai_processor._initialization_error}")
-            except Exception as e:
-                st.error(f"Error configuring OpenAI: {str(e)}")
-        else:
-            st.warning("Please enter your OpenAI API key")
-
-        st.markdown("---")
-        st.header("RAG Settings")
-        
-        rag_k_results = st.slider("Retrieved Documents", 1, 10, 5, 
-                                 help="Number of relevant documents to retrieve for each query")
-        
-        maintain_context = st.checkbox("Maintain Conversation Context", value=True,
-                                      help="Keep context from previous questions")
-        
-        if st.button("Clear Conversation History"):
-            if hasattr(st.session_state.processor, 'conversation_manager'):
-                st.session_state.processor.conversation_manager.clear_history()
-                st.success("Conversation history cleared")
-
-        st.markdown("---")
-        st.header("System Status")
-        
-        # Show RAG system status
-        if hasattr(st.session_state.processor, 'vector_store'):
-            stats = st.session_state.processor.vector_store.get_stats()
-            st.metric("RAG Available", "Yes" if stats['available'] else "No")
-            st.metric("Index Built", "Yes" if stats['index_built'] else "No") 
-            st.metric("Documents", stats['document_count'])
-            st.metric("Vector Dimension", stats['dimension'])
-
-    # File upload
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    # File upload section
+    st.header("📁 Upload Job Dataset")
+    uploaded_file = st.file_uploader("Choose a CSV file containing job data", type="csv",
+                                   help="Expected columns: Company, Job Title, Location, Salary, Description, etc.")
 
     if uploaded_file is not None:
-        # Load the CSV
-        if st.session_state.processor.load_csv(uploaded_file):
-            st.success("CSV file loaded successfully!")
+        # Load and display basic info
+        if st.session_state.job_processor.load_csv(uploaded_file):
+            st.success("✅ Job dataset loaded successfully!")
 
-            # Display basic info about the original data
-            col1, col2 = st.columns(2)
+            # Display dataset overview
+            col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Rows", len(st.session_state.processor.df))
+                st.metric("Total Jobs", len(st.session_state.job_processor.df))
             with col2:
-                st.metric("Columns", len(st.session_state.processor.df.columns))
+                st.metric("Data Columns", len(st.session_state.job_processor.df.columns))
+            with col3:
+                # Try to identify job-specific columns
+                job_cols = 0
+                for col in st.session_state.job_processor.df.columns:
+                    if any(word in col.lower() for word in ['company', 'job', 'title', 'salary', 'location']):
+                        job_cols += 1
+                st.metric("Job-Related Columns", job_cols)
 
-            # Show original data sample
-            with st.expander("View Original Data Sample"):
-                st.dataframe(st.session_state.processor.df.head())
+            # Show column information
+            with st.expander("📊 Dataset Column Information"):
+                col_info = []
+                for col in st.session_state.job_processor.df.columns:
+                    col_info.append({
+                        'Column': col,
+                        'Type': str(st.session_state.job_processor.df[col].dtype),
+                        'Non-Null': f"{st.session_state.job_processor.df[col].count():,}",
+                        'Unique Values': f"{st.session_state.job_processor.df[col].nunique():,}",
+                        'Sample Value': str(st.session_state.job_processor.df[col].iloc[0])[:50] + "..." if len(str(st.session_state.job_processor.df[col].iloc[0])) > 50 else str(st.session_state.job_processor.df[col].iloc[0])
+                    })
+                st.dataframe(pd.DataFrame(col_info), use_container_width=True)
 
-            # Data processing section
-            st.header("Data Processing, Tokenization & RAG Setup")
+            # Show sample data
+            with st.expander("👀 Sample Job Data"):
+                st.dataframe(st.session_state.job_processor.df.head(10))
 
+            # Processing workflow
+            st.header("🔧 Data Processing & RAG Setup")
+            
             col1, col2, col3 = st.columns(3)
 
             with col1:
-                if st.button("Clean Data", type="secondary"):
-                    with st.spinner("Cleaning data..."):
-                        if st.session_state.processor.clean_data():
-                            st.success("Data cleaned successfully!")
+                if st.button("🧹 Clean Job Data", type="secondary", use_container_width=True):
+                    with st.spinner("Cleaning and standardizing job data..."):
+                        if st.session_state.job_processor.clean_job_data():
+                            st.success("✅ Job data cleaned successfully!")
+                            # Show improvements
+                            with st.expander("View Cleaned Data Changes"):
+                                st.write("**Standardized Column Names:**")
+                                for old, new in zip(st.session_state.job_processor.df.columns, 
+                                                  st.session_state.job_processor.processed_df.columns):
+                                    if old != new:
+                                        st.write(f"• {old} → {new}")
+                                
+                                st.write("**Missing Value Handling:**")
+                                null_counts = st.session_state.job_processor.processed_df.isnull().sum()
+                                st.write(f"• Total null values: {null_counts.sum()}")
                         else:
-                            st.error("Error cleaning data")
+                            st.error("❌ Error cleaning job data")
 
             with col2:
-                if st.button("Tokenize Data", type="secondary"):
-                    if st.session_state.processor.processed_df is not None:
-                        with st.spinner("Tokenizing data..."):
-                            if st.session_state.processor.tokenize_dataset():
-                                st.session_state.processor.generate_data_summary()
-                                st.success("Data tokenized successfully!")
+                if st.button("🔤 Tokenize Job Data", type="secondary", use_container_width=True):
+                    if st.session_state.job_processor.processed_df is not None:
+                        with st.spinner("Performing job-specific tokenization..."):
+                            if st.session_state.job_processor.tokenize_job_dataset():
+                                st.session_state.job_processor.generate_job_data_summary()
+                                st.success("✅ Job tokenization completed!")
                             else:
-                                st.error("Error during tokenization")
+                                st.error("❌ Error during job tokenization")
                     else:
                         st.error("Please clean data first")
 
             with col3:
-                if st.button("Build RAG Index", type="primary"):
-                    if (st.session_state.processor.processed_df is not None and 
-                        st.session_state.processor.tokenized_df is not None):
-                        with st.spinner("Building RAG vector index..."):
-                            if st.session_state.processor.build_rag_index():
+                if st.button("🧠 Build RAG Index", type="primary", use_container_width=True):
+                    if (st.session_state.job_processor.processed_df is not None and 
+                        st.session_state.job_processor.tokenized_df is not None):
+                        with st.spinner("Building job-specific RAG vector index..."):
+                            if st.session_state.job_processor.build_job_rag_index():
                                 st.session_state.rag_ready = True
-                                st.success("RAG system ready!")
+                                st.success("✅ Job RAG system ready!")
                             else:
-                                st.error("Error building RAG index")
+                                st.error("❌ Error building RAG index")
                     else:
                         st.error("Please clean and tokenize data first")
 
-            # Complete workflow button
-            st.markdown("### Complete Workflow")
-            if st.button("Clean + Tokenize + Build RAG (All-in-One)", type="primary"):
-                with st.spinner("Processing complete workflow..."):
-                    success = True
-                    
-                    # Clean data
-                    if not st.session_state.processor.clean_data():
-                        st.error("Error cleaning data")
-                        success = False
+            # One-click workflow
+            st.markdown("### 🚀 Complete Workflow")
+            if st.button("🔄 Process Everything (Clean + Tokenize + Build RAG)", type="primary", use_container_width=True):
+                workflow_success = True
+                
+                with st.spinner("Running complete job data processing workflow..."):
+                    # Step 1: Clean
+                    st.info("Step 1/3: Cleaning job data...")
+                    if not st.session_state.job_processor.clean_job_data():
+                        st.error("❌ Data cleaning failed")
+                        workflow_success = False
                     else:
-                        st.success("Data cleaned!")
+                        st.success("✅ Data cleaned")
                     
-                    # Tokenize data
-                    if success and st.session_state.processor.tokenize_dataset():
-                        st.session_state.processor.generate_data_summary()
-                        st.success("Data tokenized!")
-                    else:
-                        st.error("Error during tokenization")
-                        success = False
+                    # Step 2: Tokenize
+                    if workflow_success:
+                        st.info("Step 2/3: Tokenizing job data...")
+                        if st.session_state.job_processor.tokenize_job_dataset():
+                            st.session_state.job_processor.generate_job_data_summary()
+                            st.success("✅ Data tokenized")
+                        else:
+                            st.error("❌ Tokenization failed")
+                            workflow_success = False
                     
-                    # Build RAG index
-                    if success and st.session_state.processor.build_rag_index():
-                        st.session_state.rag_ready = True
-                        st.success("Complete RAG system ready!")
-                    else:
-                        st.error("Error building RAG index")
+                    # Step 3: Build RAG
+                    if workflow_success:
+                        st.info("Step 3/3: Building RAG index...")
+                        if st.session_state.job_processor.build_job_rag_index():
+                            st.session_state.rag_ready = True
+                            st.success("✅ Complete RAG system ready!")
+                        else:
+                            st.error("❌ RAG index building failed")
+                            workflow_success = False
+
+                if workflow_success:
+                    st.balloons()
+                    st.success("🎉 Complete job data processing workflow completed successfully!")
 
             # Show processing status
-            if st.session_state.processor.processed_df is not None:
-                st.info("Data processed and cleaned")
+            status_cols = st.columns(3)
+            with status_cols[0]:
+                if st.session_state.job_processor.processed_df is not None:
+                    st.info("✅ Data Cleaned")
+                else:
+                    st.warning("⏳ Data Not Cleaned")
             
-            if st.session_state.processor.tokenized_df is not None:
-                st.info("Data tokenized with semantic enrichment")
-                
-            if st.session_state.rag_ready:
-                st.info("RAG vector index ready for intelligent querying")
+            with status_cols[1]:
+                if st.session_state.job_processor.tokenized_df is not None:
+                    st.info("✅ Data Tokenized")
+                else:
+                    st.warning("⏳ Data Not Tokenized")
+            
+            with status_cols[2]:
+                if st.session_state.rag_ready:
+                    st.info("✅ RAG System Ready")
+                else:
+                    st.warning("⏳ RAG Not Built")
 
-            # Show enhanced data analysis if available
-            if st.session_state.processor.tokenized_df is not None:
-                st.header("Enhanced Data Analysis & Statistics")
+            # Enhanced analysis section
+            if st.session_state.job_processor.tokenized_df is not None:
+                st.header("📈 Job Market Analysis & Insights")
 
-                # Create tabs for different views
-                tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Tokenization Stats", "Data Distribution", "Column Analysis"])
+                tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔤 Tokenization", "🏢 Companies", "📍 Locations"])
 
                 with tab1:
-                    st.subheader("Dataset Overview")
+                    st.subheader("Job Dataset Overview")
 
-                    # Basic dataset statistics
+                    # Key metrics
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total Rows", f"{len(st.session_state.processor.processed_df):,}")
+                        st.metric("Total Job Listings", f"{len(st.session_state.job_processor.processed_df):,}")
                     with col2:
-                        st.metric("Total Columns", len(st.session_state.processor.processed_df.columns))
+                        if 'company' in st.session_state.job_processor.processed_df.columns:
+                            unique_companies = st.session_state.job_processor.processed_df['company'].nunique()
+                            st.metric("Unique Companies", f"{unique_companies:,}")
+                        else:
+                            st.metric("Unique Companies", "N/A")
                     with col3:
-                        missing_values = st.session_state.processor.processed_df.isnull().sum().sum()
-                        st.metric("Missing Values", f"{missing_values:,}")
+                        if 'city_job_location' in st.session_state.job_processor.processed_df.columns:
+                            unique_cities = st.session_state.job_processor.processed_df['city_job_location'].nunique()
+                            st.metric("Unique Cities", f"{unique_cities:,}")
+                        else:
+                            st.metric("Unique Cities", "N/A")
                     with col4:
-                        memory_usage = st.session_state.processor.processed_df.memory_usage(deep=True).sum() / 1024**2
-                        st.metric("Memory Usage", f"{memory_usage:.2f} MB")
+                        if 'summary_job_title' in st.session_state.job_processor.processed_df.columns:
+                            unique_titles = st.session_state.job_processor.processed_df['summary_job_title'].nunique()
+                            st.metric("Unique Job Titles", f"{unique_titles:,}")
+                        else:
+                            st.metric("Unique Job Titles", "N/A")
 
-                    # RAG Status
+                    # RAG system status
                     if st.session_state.rag_ready:
-                        st.success("RAG System: Active with vector search capabilities")
-                        st.info(f"Vector Index: {len(st.session_state.processor.vector_store.documents)} documents indexed")
+                        st.success("🧠 RAG System: Active with job-optimized vector search")
+                        vector_stats = st.session_state.job_processor.vector_store.get_stats()
+                        st.info(f"📚 Vector Index: {vector_stats['document_count']} documents indexed")
                     else:
-                        st.warning("RAG System: Not initialized. Build RAG index for enhanced querying.")
+                        st.warning("🧠 RAG System: Build index to enable intelligent job queries")
 
                 with tab2:
-                    st.subheader("Comprehensive Tokenization Statistics")
+                    st.subheader("Job-Specific Tokenization Results")
 
-                    if st.session_state.processor.tokenization_summary:
-                        token_summary = st.session_state.processor.tokenization_summary
+                    if st.session_state.job_processor.tokenization_summary:
+                        token_summary = st.session_state.job_processor.tokenization_summary
 
-                        # Global tokenization metrics
-                        st.write("### Global Tokenization Metrics")
+                        # Global metrics
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
                             st.metric("Total Tokens", f"{token_summary['global_stats']['total_tokens_generated']:,}")
@@ -1558,230 +1765,329 @@ def main():
                         with col3:
                             st.metric("Avg Tokens/Column", f"{token_summary['global_stats']['average_tokens_per_column']:.1f}")
                         with col4:
-                            st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.2f}")
+                            st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.3f}")
 
-                        # Column-wise tokenization breakdown
-                        st.write("### Column-wise Tokenization Breakdown")
+                        # Job-specific insights
+                        if 'job_specific_insights' in token_summary:
+                            st.write("### Job-Specific Tokenization Insights")
+                            insights = token_summary['job_specific_insights']
+                            
+                            insight_cols = st.columns(4)
+                            with insight_cols[0]:
+                                st.metric("Company Tokens", f"{insights.get('companies_tokenized', 0):,}")
+                            with insight_cols[1]:
+                                st.metric("Job Title Tokens", f"{insights.get('job_titles_tokenized', 0):,}")
+                            with insight_cols[2]:
+                                st.metric("Location Tokens", f"{insights.get('locations_tokenized', 0):,}")
+                            with insight_cols[3]:
+                                st.metric("Salary Tokens", f"{insights.get('salary_tokens', 0):,}")
 
-                        # Create a detailed dataframe for column statistics
+                        # Column breakdown
+                        st.write("### Tokenization by Column")
                         column_stats_data = []
                         for col, stats in token_summary['column_stats'].items():
                             column_stats_data.append({
                                 'Column': col,
-                                'Data Type': str(st.session_state.processor.processed_df[col].dtype),
-                                'Total Tokens': stats['total_tokens'],
-                                'Unique Tokens': stats['unique_tokens'],
-                                'Diversity Score': f"{stats['token_diversity']:.3f}",
-                                'Top Token': stats['most_common'][0][0] if stats['most_common'] else 'N/A',
-                                'Token Frequency': stats['most_common'][0][1] if stats['most_common'] else 0
+                                'Type': 'Job-Specific' if col in ['company', 'summary_job_title', 'city_job_location', 'job_salary'] else 'General',
+                                'Total Tokens': f"{stats['total_tokens']:,}",
+                                'Unique Tokens': f"{stats['unique_tokens']:,}",
+                                'Diversity': f"{stats['token_diversity']:.3f}",
+                                'Top Token': stats['most_common'][0][0] if stats['most_common'] else 'N/A'
                             })
 
-                        stats_df = pd.DataFrame(column_stats_data)
-                        st.dataframe(stats_df, use_container_width=True)
+                        st.dataframe(pd.DataFrame(column_stats_data), use_container_width=True)
 
                 with tab3:
-                    st.subheader("Data Distribution Analysis")
+                    st.subheader("Company Analysis")
                     
-                    # Show basic distribution charts for numeric and categorical columns
-                    numeric_cols = st.session_state.processor.processed_df.select_dtypes(include=[np.number]).columns
-                    if len(numeric_cols) > 0:
-                        st.write("### Numeric Columns Distribution")
-                        st.dataframe(st.session_state.processor.processed_df[numeric_cols].describe())
+                    if 'company' in st.session_state.job_processor.processed_df.columns:
+                        company_counts = st.session_state.job_processor.processed_df['company'].value_counts().head(10)
+                        
+                        # Company distribution chart
+                        fig = px.bar(
+                            x=company_counts.values,
+                            y=company_counts.index,
+                            orientation='h',
+                            title="Top 10 Companies by Job Listings",
+                            labels={'x': 'Number of Job Listings', 'y': 'Company'}
+                        )
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Company stats table
+                        st.write("### Company Statistics")
+                        company_data = []
+                        for company, count in company_counts.head(10).items():
+                            company_data.append({
+                                'Company': company,
+                                'Job Listings': count,
+                                'Percentage': f"{(count/len(st.session_state.job_processor.processed_df)*100):.1f}%"
+                            })
+                        st.dataframe(pd.DataFrame(company_data), use_container_width=True)
+                    else:
+                        st.info("No company column found in the dataset")
 
                 with tab4:
-                    st.subheader("Detailed Column Analysis")
+                    st.subheader("Location Analysis")
                     
-                    # Column selector
-                    selected_column = st.selectbox("Select a column for detailed analysis:",
-                                                 st.session_state.processor.processed_df.columns)
+                    if 'city_job_location' in st.session_state.job_processor.processed_df.columns:
+                        location_counts = st.session_state.job_processor.processed_df['city_job_location'].value_counts().head(10)
+                        
+                        # Location distribution chart
+                        fig = px.bar(
+                            x=location_counts.values,
+                            y=location_counts.index,
+                            orientation='h',
+                            title="Top 10 Cities by Job Listings",
+                            labels={'x': 'Number of Job Listings', 'y': 'City'}
+                        )
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Location stats table
+                        st.write("### Location Statistics")
+                        location_data = []
+                        for location, count in location_counts.head(10).items():
+                            location_data.append({
+                                'City': location,
+                                'Job Listings': count,
+                                'Percentage': f"{(count/len(st.session_state.job_processor.processed_df)*100):.1f}%"
+                            })
+                        st.dataframe(pd.DataFrame(location_data), use_container_width=True)
+                    else:
+                        st.info("No city location column found in the dataset")
 
-                    if selected_column:
-                        col_data = st.session_state.processor.processed_df[selected_column]
 
-                        # Basic column info
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Data Type", str(col_data.dtype))
-                        with col2:
-                            st.metric("Unique Values", col_data.nunique())
-                        with col3:
-                            st.metric("Missing Values", col_data.isnull().sum())
-                        with col4:
-                            st.metric("Memory Usage", f"{col_data.memory_usage(deep=True) / 1024:.2f} KB")
-
-            # RAG-Enhanced Natural Language Query Section
+# RAG-Enhanced Job Query Interface
             if (st.session_state.rag_ready and st.session_state.openai_processor is not None 
                 and st.session_state.openai_processor.is_available()):
 
-                st.header("RAG-Enhanced Natural Language Queries")
-                st.markdown("Ask sophisticated questions with **Retrieval-Augmented Generation** and **conversation context**!")
+                st.header("🤖 Intelligent Job Market Queries with RAG")
+                st.markdown("Ask sophisticated questions about the job market with **Retrieval-Augmented Generation**!")
 
-                # RAG Status Display
+                # RAG system status
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.info(f"Documents: {len(st.session_state.processor.vector_store.documents)}")
+                    vector_stats = st.session_state.job_processor.vector_store.get_stats()
+                    st.info(f"📚 Documents: {vector_stats['document_count']}")
                 with col2:
-                    st.info(f"Context: {'Active' if maintain_context else 'Disabled'}")
+                    st.info(f"🧠 Context: {'Active' if maintain_context else 'Disabled'}")
                 with col3:
-                    history_count = len(st.session_state.processor.conversation_manager.conversation_history)
-                    st.info(f"History: {history_count} exchanges")
+                    history_count = len(st.session_state.job_processor.conversation_manager.conversation_history)
+                    st.info(f"💬 History: {history_count} exchanges")
 
-                # Enhanced example questions
-                with st.expander("Example Questions"):
+                # Example questions for job data
+                with st.expander("💡 Example Job Market Questions"):
                     st.markdown("""
-                    **Dataset Insights with Context:**
-                    - What are the main patterns in this dataset and how do they relate to business outcomes?
-                    - Which columns show the strongest relationships and what insights does this provide?
-                    - Based on the data structure and tokens, what analysis approach would you recommend?
+                    **Company Analysis:**
+                    - Which companies are hiring the most and in what locations?
+                    - What types of roles are the top companies posting?
+                    - Compare hiring patterns between different companies
                     
-                    **Conversational Analysis:**
-                    - Tell me about the data quality issues and suggest improvements
-                    - What are the outliers in the numeric columns and what might they indicate?
-                    - Compare the token diversity across different data types and explain the implications
+                    **Location & Market Insights:**
+                    - What are the best cities for job opportunities in this dataset?
+                    - Which locations offer the highest paying positions?
+                    - Analyze the geographic distribution of different job types
+                    
+                    **Salary & Compensation:**
+                    - What's the salary range for different types of positions?
+                    - Which companies or locations offer the best compensation?
+                    - Analyze salary trends across different job categories
+                    
+                    **Career Guidance:**
+                    - What skills or qualifications are most in demand?
+                    - What career paths show the most opportunities?
+                    - Based on this data, what advice would you give to job seekers?
+                    
+                    **Trend Analysis:**
+                    - What patterns do you see in the job market data?
+                    - Which industries or job functions are most represented?
+                    - What insights can help with career planning?
                     """)
 
-                # Query input with RAG capabilities
-                question = st.text_area("Ask a question about your data (RAG-enhanced with context):",
-                                       placeholder="e.g., What are the key insights from this dataset and how should I approach the analysis?",
-                                       height=100)
+                # Query input
+                question = st.text_area(
+                    "Ask about the job market (RAG-enhanced analysis):",
+                    placeholder="e.g., Which companies are hiring the most software engineers and what are the salary ranges?",
+                    height=100
+                )
 
                 # Query options
                 col1, col2 = st.columns(2)
                 with col1:
                     show_retrieved_docs = st.checkbox("Show Retrieved Context", value=True,
-                                                    help="Display the documents retrieved by the RAG system")
+                                                    help="Display job data retrieved by RAG")
                 with col2:
-                    show_conversation_context = st.checkbox("Show Conversation Context", value=False,
-                                                          help="Display the conversation history context")
+                    show_conversation_history = st.checkbox("Show Conversation Context", value=False,
+                                                          help="Display conversation history")
 
-                if st.button("Query with RAG Enhancement") and question:
-                    with st.spinner("Processing RAG-enhanced query with conversation context..."):
-                        # Perform RAG-enhanced query
-                        response = st.session_state.openai_processor.query_data_with_rag(
+                if st.button("🚀 Analyze with RAG", type="primary", use_container_width=True) and question:
+                    with st.spinner("Performing intelligent job market analysis..."):
+                        # Process query with RAG
+                        response = st.session_state.openai_processor.query_job_data_with_rag(
                             question,
-                            st.session_state.processor.data_summary,
-                            st.session_state.processor.vector_store,
-                            st.session_state.processor.conversation_manager
+                            st.session_state.job_processor.data_summary,
+                            st.session_state.job_processor.vector_store,
+                            st.session_state.job_processor.conversation_manager
                         )
 
                         # Display results
-                        st.subheader("RAG-Enhanced Analysis Results")
+                        st.subheader("📊 Job Market Analysis Results")
                         st.write(response)
 
                         # Show retrieved context if requested
                         if show_retrieved_docs:
-                            with st.expander("Retrieved Context Documents"):
-                                retrieved_docs = st.session_state.processor.vector_store.search(question, k=rag_k_results)
-                                for i, doc in enumerate(retrieved_docs, 1):
-                                    st.write(f"**Document {i}** (Similarity: {doc['score']:.3f})")
-                                    st.write(doc['text'])
-                                    if doc.get('metadata'):
-                                        st.caption(f"Metadata: {doc['metadata']}")
-                                    st.markdown("---")
+                            with st.expander("📄 Retrieved Job Data Context"):
+                                retrieved_docs = st.session_state.job_processor.vector_store.search(question, k=rag_k_results)
+                                if retrieved_docs:
+                                    for i, doc in enumerate(retrieved_docs, 1):
+                                        similarity = doc['score']
+                                        text = doc['text']
+                                        metadata = doc.get('metadata', {})
+                                        
+                                        st.write(f"**Document {i}** (Similarity: {similarity:.3f})")
+                                        st.write(text)
+                                        
+                                        if metadata:
+                                            if metadata.get('company'):
+                                                st.caption(f"Company: {metadata['company']}")
+                                            if metadata.get('location'):
+                                                st.caption(f"Location: {metadata['location']}")
+                                            if metadata.get('job_count'):
+                                                st.caption(f"Job Count: {metadata['job_count']}")
+                                        
+                                        st.markdown("---")
+                                else:
+                                    st.write("No relevant documents retrieved")
 
                         # Show conversation context if requested
-                        if show_conversation_context and maintain_context:
-                            with st.expander("Conversation Context"):
-                                history = st.session_state.processor.conversation_manager.conversation_history
-                                for i, exchange in enumerate(reversed(history[-3:]), 1):
-                                    st.write(f"**Exchange {len(history) - i + 1}:**")
-                                    st.write(f"*Q:* {exchange['question'][:150]}...")
-                                    st.write(f"*A:* {exchange['answer'][:200]}...")
-                                    st.markdown("---")
+                        if show_conversation_history and maintain_context:
+                            with st.expander("💬 Conversation History"):
+                                history = st.session_state.job_processor.conversation_manager.conversation_history
+                                if history:
+                                    for i, exchange in enumerate(reversed(history[-5:]), 1):
+                                        st.write(f"**Exchange {len(history) - i + 1}** ({exchange.get('query_type', 'general')})")
+                                        st.write(f"*Q:* {exchange['question'][:150]}...")
+                                        st.write(f"*A:* {exchange['answer'][:200]}...")
+                                        st.caption(f"Time: {exchange['timestamp']}")
+                                        st.markdown("---")
+                                else:
+                                    st.write("No conversation history yet")
 
-                # RAG Testing and Exploration
-                st.header("RAG System Testing & Exploration")
+                # RAG System Testing
+                st.header("🔬 RAG System Testing & Exploration")
 
                 col1, col2 = st.columns(2)
 
                 with col1:
                     st.subheader("Vector Search Test")
-                    test_query = st.text_input("Test semantic search:", 
-                                             placeholder="e.g., numeric columns with high variance")
+                    test_query = st.text_input("Test job data search:", 
+                                             placeholder="e.g., software engineer positions")
                     
-                    if test_query and st.button("Search Documents"):
-                        results = st.session_state.processor.vector_store.search(test_query, k=5)
+                    if test_query and st.button("Search Job Documents"):
+                        results = st.session_state.job_processor.vector_store.search(test_query, k=5)
                         if results:
                             for i, result in enumerate(results, 1):
                                 st.write(f"**{i}.** Score: {result['score']:.3f}")
                                 st.write(result['text'][:200] + "...")
+                                if result.get('metadata', {}).get('company'):
+                                    st.caption(f"Company: {result['metadata']['company']}")
                                 st.markdown("---")
                         else:
                             st.write("No results found")
 
                 with col2:
-                    st.subheader("Conversation History")
-                    history = st.session_state.processor.conversation_manager.conversation_history
+                    st.subheader("Query History")
+                    history = st.session_state.job_processor.conversation_manager.conversation_history
                     if history:
                         for i, exchange in enumerate(reversed(history[-5:]), 1):
-                            with st.expander(f"Exchange {len(history) - i + 1}: {exchange['question'][:50]}..."):
+                            query_type = exchange.get('query_type', 'general')
+                            with st.expander(f"{query_type.title()}: {exchange['question'][:40]}..."):
                                 st.write(f"**Question:** {exchange['question']}")
                                 st.write(f"**Answer:** {exchange['answer'][:300]}...")
-                                st.caption(f"Time: {exchange['timestamp']}")
+                                st.caption(f"Type: {query_type} | Time: {exchange['timestamp']}")
                     else:
-                        st.write("No conversation history yet")
+                        st.write("No query history yet")
 
-            elif st.session_state.processor.tokenized_df is not None and st.session_state.openai_processor is not None:
-                st.header("RAG System Not Ready")
-                if not st.session_state.openai_processor.is_available():
-                    st.error(f"OpenAI client not available: {st.session_state.openai_processor._initialization_error}")
+                # Clear conversation history
+                if st.button("🗑️ Clear Conversation History"):
+                    st.session_state.job_processor.conversation_manager.clear_history()
+                    st.success("Conversation history cleared")
+                    st.rerun()
+
+            elif st.session_state.job_processor.tokenized_df is not None:
+                st.header("⚠️ RAG System Setup Required")
+                if not st.session_state.openai_processor:
+                    st.error("Please enter your OpenAI API key in the sidebar")
+                elif not st.session_state.openai_processor.is_available():
+                    st.error(f"OpenAI client error: {st.session_state.openai_processor._initialization_error}")
                 else:
-                    st.warning("Please build the RAG index to enable enhanced querying with retrieval capabilities.")
+                    st.warning("Please build the RAG index to enable intelligent job market queries")
 
             # Export functionality
-            if st.session_state.processor.tokenized_df is not None:
-                st.header("Export Enhanced Data & RAG Components")
+            if st.session_state.job_processor.tokenized_df is not None:
+                st.header("📤 Export Enhanced Job Data")
 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
-                    if st.button("Download Processed Data"):
-                        csv = st.session_state.processor.processed_df.to_csv(index=False)
+                    if st.button("📊 Download Processed Data"):
+                        csv = st.session_state.job_processor.processed_df.to_csv(index=False)
                         st.download_button(
                             label="Download Processed CSV",
                             data=csv,
-                            file_name="processed_data.csv",
+                            file_name="processed_job_data.csv",
                             mime="text/csv"
                         )
 
                 with col2:
-                    if st.button("Download Tokenized Data"):
-                        csv = st.session_state.processor.tokenized_df.to_csv(index=False)
+                    if st.button("🔤 Download Tokenized Data"):
+                        csv = st.session_state.job_processor.tokenized_df.to_csv(index=False)
                         st.download_button(
                             label="Download Tokenized CSV",
                             data=csv,
-                            file_name="tokenized_data.csv",
+                            file_name="tokenized_job_data.csv",
                             mime="text/csv"
                         )
 
                 with col3:
-                    if st.button("Download RAG Documents"):
-                        if st.session_state.processor.vector_store.documents:
+                    if st.button("📚 Download RAG Documents"):
+                        if st.session_state.job_processor.vector_store.documents:
                             rag_data = {
-                                "documents": st.session_state.processor.vector_store.documents,
-                                "metadata": st.session_state.processor.vector_store.metadata,
-                                "total_documents": len(st.session_state.processor.vector_store.documents)
+                                "documents": st.session_state.job_processor.vector_store.documents,
+                                "metadata": st.session_state.job_processor.vector_store.metadata,
+                                "total_documents": len(st.session_state.job_processor.vector_store.documents),
+                                "vector_dimension": st.session_state.job_processor.vector_store.dimension
                             }
                             json_data = json.dumps(rag_data, indent=2)
                             st.download_button(
                                 label="Download RAG Documents JSON",
                                 data=json_data,
-                                file_name="rag_documents.json",
+                                file_name="job_rag_documents.json",
                                 mime="application/json"
                             )
 
-    # Footer with version 2.2 features
+                with col4:
+                    if st.button("📈 Download Analysis Summary"):
+                        if st.session_state.job_processor.data_summary:
+                            summary_json = json.dumps(st.session_state.job_processor.data_summary, indent=2)
+                            st.download_button(
+                                label="Download Analysis JSON",
+                                data=summary_json,
+                                file_name="job_analysis_summary.json",
+                                mime="application/json"
+                            )
+
+    # Footer
     st.markdown("---")
     st.markdown("""
-    ## Version 2.2 - COMPLETELY FIXED - All Critical Issues Resolved
+    ## Job Data RAG Analyzer v3.0 - Complete Solution
 
-    **Critical Fixes in This Version:**
-    - **NumPy Data Type**: Fixed 'f32' string error by using `np.float32`
-    - **USearch Integration**: Proper batch processing and individual document addition
-    - **Vector Search**: Fixed result handling with multiple format support
-    - **Error Handling**: Comprehensive exception handling with graceful fallbacks
-    - **Memory Management**: Optimized embedding processing and reduced batch sizes
-    - **Logging**: Enhanced debugging capabilities with detailed error tracking
+    **Key Features:**
+    - **Job-Specific Processing**: Optimized tokenization for company names, job titles, locations, and salaries
+    - **Enhanced RAG System**: Vector search with job market context and conversation history
+    - **Intelligent Analysis**: OpenAI-powered insights with retrieval-augmented generation
+    - **Professional Interface**: Clean, intuitive design optimized for HR professionals and job seekers
 
     **Dependencies for Full Functionality:**
     ```bash
@@ -1790,15 +2096,16 @@ def main():
     
     **How to Run:**
     ```bash
-    # Save all parts as csv_rag_app_v2_2_fixed.py, then run:
-    streamlit run csv_rag_app_v2_2_fixed.py
+    # Save all parts as job_rag_analyzer_v3.py, then run:
+    streamlit run job_rag_analyzer_v3.py
     ```
     
-    **Testing with Your Data:**
-    1. Upload your CSV file
-    2. Click "Clean + Tokenize + Build RAG (All-in-One)"
-    3. Enter your OpenAI API key
-    4. Start asking questions about your data!
+    **Perfect for:**
+    - HR professionals analyzing job market trends
+    - Recruiters understanding hiring patterns
+    - Job seekers researching opportunities
+    - Data analysts exploring employment data
+    - Career counselors providing guidance
     """)
 
 if __name__ == "__main__":
