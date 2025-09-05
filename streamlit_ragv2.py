@@ -1214,7 +1214,7 @@ def clean_job_data(self) -> bool:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
-    
+
     def tokenize_job_dataset(self) -> bool:
         """Perform job-specific tokenization of the dataset"""
         if self.processed_df is None:
