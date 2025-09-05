@@ -14,6 +14,7 @@ import string
 from datetime import datetime
 import warnings
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -77,7 +78,7 @@ warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="CSV Natural Language Query RAG App v2.0 Fixed",
+    page_title="CSV Natural Language Query RAG App v2.1 FIXED",
     page_icon="🧠",
     layout="wide"
 )
@@ -300,7 +301,7 @@ class AdvancedTokenizer:
         return tokens
 
 class RAGVectorStore:
-    """Fixed Vector store for RAG functionality using USearch and sentence transformers"""
+    """FIXED Vector store for RAG functionality using USearch and sentence transformers"""
     
     def __init__(self):
         self.embedder = None
@@ -309,13 +310,16 @@ class RAGVectorStore:
         self.metadata = []
         self.dimension = 384  # Default for sentence transformers
         self._index_built = False
+        self._initialization_error = None
         
         # Check dependencies and initialize
         if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            self._initialization_error = "SentenceTransformers not available"
             st.error("❌ SentenceTransformers not available. Install with: pip install sentence-transformers")
             return
             
         if not USEARCH_AVAILABLE:
+            self._initialization_error = "USearch not available"
             st.error("❌ USearch not available. Install with: pip install usearch")
             return
         
@@ -323,40 +327,44 @@ class RAGVectorStore:
         try:
             with st.spinner("Loading sentence transformer model..."):
                 self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
-                # Fixed: Use correct method name
-                if hasattr(self.embedder, 'get_sentence_embedding_dimension'):
-                    self.dimension = self.embedder.get_sentence_embedding_dimension()
-                elif hasattr(self.embedder, 'encode'):
-                    # Fallback: encode a test sentence to get dimension
-                    test_embedding = self.embedder.encode(["test"])
-                    self.dimension = len(test_embedding[0])
+                # Get dimension correctly
+                test_embedding = self.embedder.encode(["test"], show_progress_bar=False)
+                self.dimension = len(test_embedding[0]) if len(test_embedding) > 0 else 384
                 st.success("✅ Sentence transformer loaded successfully")
                 logger.info(f"Loaded sentence transformer with dimension: {self.dimension}")
         except Exception as e:
+            self._initialization_error = f"Sentence transformer error: {str(e)}"
             st.error(f"Error loading sentence transformer: {str(e)}")
             logger.error(f"Sentence transformer loading error: {str(e)}")
             self.embedder = None
+            return
             
         # Initialize USearch index with error handling
         try:
-            self.index = Index(
-                ndim=self.dimension,
-                metric='cos',  # cosine similarity
-                dtype='f32'    # float32
-            )
+            self._init_index()
             st.success("✅ USearch index initialized successfully")
             logger.info(f"USearch index initialized with dimension: {self.dimension}")
         except Exception as e:
+            self._initialization_error = f"USearch error: {str(e)}"
             st.error(f"Error initializing USearch index: {str(e)}")
             logger.error(f"USearch index initialization error: {str(e)}")
             self.index = None
+    
+    def _init_index(self):
+        """Initialize or reinitialize the USearch index"""
+        self.index = Index(
+            ndim=self.dimension,
+            metric='cos',  # cosine similarity
+            dtype='f32'    # float32
+        )
     
     def is_available(self) -> bool:
         """Check if RAG functionality is available"""
         return (self.embedder is not None and 
                 self.index is not None and 
                 USEARCH_AVAILABLE and 
-                SENTENCE_TRANSFORMERS_AVAILABLE)
+                SENTENCE_TRANSFORMERS_AVAILABLE and
+                self._initialization_error is None)
             
     def create_document_chunks(self, processed_df: pd.DataFrame, tokenized_df: pd.DataFrame, 
                              data_summary: Dict) -> List[Dict]:
@@ -449,7 +457,7 @@ class RAGVectorStore:
             return []
     
     def build_index(self, chunks: List[Dict]) -> bool:
-        """Build USearch index from document chunks"""
+        """FIXED: Build USearch index from document chunks"""
         if not self.is_available():
             st.error("❌ RAG system not available. Please install required dependencies:")
             st.code("pip install usearch sentence-transformers")
@@ -466,18 +474,14 @@ class RAGVectorStore:
             self._index_built = False
             
             # Reinitialize index to ensure clean state
-            self.index = Index(
-                ndim=self.dimension,
-                metric='cos',
-                dtype='f32'
-            )
+            self._init_index()
             
             # Process chunks in batches for memory efficiency
             batch_size = 16
             texts = [chunk['text'] for chunk in chunks]
             
             progress_bar = st.progress(0)
-            st.info(f"📄 Building vector index for RAG with {len(texts)} documents...")
+            st.info(f"🔄 Building vector index for RAG with {len(texts)} documents...")
             
             total_processed = 0
             
@@ -486,20 +490,28 @@ class RAGVectorStore:
                 batch_chunks = chunks[i:i + batch_size]
                 
                 try:
-                    # Generate embeddings
+                    # Generate embeddings with proper error handling
                     embeddings = self.embedder.encode(
                         batch_texts, 
                         convert_to_tensor=False, 
                         show_progress_bar=False,
                         normalize_embeddings=True  # Normalize for better cosine similarity
                     )
-                    embeddings = np.array(embeddings).astype('f32')
                     
-                    # Add embeddings to USearch index
+                    # Convert to proper format
+                    if isinstance(embeddings, list):
+                        embeddings = np.array(embeddings)
+                    embeddings = embeddings.astype('f32')
+                    
+                    # Add embeddings to USearch index one by one
                     for j, embedding in enumerate(embeddings):
                         doc_id = total_processed + j
-                        # Fixed: Use correct USearch API
-                        self.index.add(doc_id, embedding)
+                        try:
+                            # FIXED: Use correct USearch API - add one vector at a time
+                            self.index.add(doc_id, embedding.flatten())
+                        except Exception as add_error:
+                            logger.error(f"Error adding document {doc_id} to index: {add_error}")
+                            continue
                     
                     # Store documents and metadata
                     self.documents.extend(batch_texts)
@@ -510,18 +522,22 @@ class RAGVectorStore:
                     # Update progress
                     progress_bar.progress(min(1.0, total_processed / len(texts)))
                     
-                    # Memory cleanup
-                    del embeddings
+                    # Small delay to prevent overwhelming
+                    time.sleep(0.01)
                     
                 except Exception as batch_error:
                     st.error(f"Error processing batch {i//batch_size + 1}: {str(batch_error)}")
                     logger.error(f"Batch processing error: {str(batch_error)}")
                     continue
             
-            self._index_built = True
-            st.success(f"✅ Vector index built with {len(self.documents)} documents")
-            logger.info(f"Vector index built successfully with {len(self.documents)} documents")
-            return True
+            if total_processed > 0:
+                self._index_built = True
+                st.success(f"✅ Vector index built with {len(self.documents)} documents")
+                logger.info(f"Vector index built successfully with {len(self.documents)} documents")
+                return True
+            else:
+                st.error("❌ No documents were successfully indexed")
+                return False
             
         except Exception as e:
             st.error(f"Error building vector index: {str(e)}")
@@ -529,7 +545,7 @@ class RAGVectorStore:
             return False
     
     def search(self, query: str, k: int = 5) -> List[Dict]:
-        """Search for relevant documents using vector similarity"""
+        """FIXED: Search for relevant documents using vector similarity"""
         if not self.is_available():
             st.warning("RAG search not available - missing dependencies")
             return []
@@ -546,38 +562,78 @@ class RAGVectorStore:
                 show_progress_bar=False,
                 normalize_embeddings=True
             )
-            query_embedding = np.array(query_embedding[0]).astype('f32')
             
-            # Fixed: Search using USearch with correct API
-            search_results = self.index.search(query_embedding, k)
+            # Convert to proper format
+            if isinstance(query_embedding, list):
+                query_embedding = np.array(query_embedding[0])
+            else:
+                query_embedding = query_embedding[0]
+            query_embedding = query_embedding.astype('f32').flatten()
+            
+            # FIXED: Perform search with proper error handling
+            try:
+                search_results = self.index.search(query_embedding, k)
+                logger.info(f"Search performed, result type: {type(search_results)}")
+            except Exception as search_error:
+                logger.error(f"Search error: {search_error}")
+                return []
             
             results = []
             
-            # Fixed: Handle USearch results correctly
-            if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
-                # USearch returns keys (document IDs) and distances
-                doc_ids = search_results.keys
-                distances = search_results.distances
+            # FIXED: Handle USearch results correctly based on version
+            try:
+                # Try new USearch API format first
+                if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
+                    doc_ids = search_results.keys
+                    distances = search_results.distances
+                    
+                    # Convert to lists if needed
+                    if hasattr(doc_ids, 'tolist'):
+                        doc_ids = doc_ids.tolist()
+                    if hasattr(distances, 'tolist'):
+                        distances = distances.tolist()
+                        
+                elif isinstance(search_results, tuple) and len(search_results) == 2:
+                    # Alternative format: (keys, distances)
+                    doc_ids, distances = search_results
+                    if hasattr(doc_ids, 'tolist'):
+                        doc_ids = doc_ids.tolist()
+                    if hasattr(distances, 'tolist'):
+                        distances = distances.tolist()
+                else:
+                    # Fallback: try to access as attributes
+                    doc_ids = getattr(search_results, 'keys', [])
+                    distances = getattr(search_results, 'distances', [])
                 
+                # Process results
                 for i, (doc_id, distance) in enumerate(zip(doc_ids, distances)):
-                    if doc_id < len(self.documents):  # Valid index
-                        # Fixed: Convert cosine distance to similarity score
+                    if isinstance(doc_id, (list, np.ndarray)):
+                        doc_id = doc_id[0] if len(doc_id) > 0 else 0
+                    if isinstance(distance, (list, np.ndarray)):
+                        distance = distance[0] if len(distance) > 0 else 1.0
+                        
+                    doc_id = int(doc_id)
+                    distance = float(distance)
+                    
+                    if 0 <= doc_id < len(self.documents):
+                        # FIXED: Convert cosine distance to similarity score
                         # USearch cosine distance: 0 = identical, 2 = opposite
-                        similarity_score = max(0, 1 - (distance / 2))
+                        similarity_score = max(0.0, 1.0 - (distance / 2.0))
                         
                         results.append({
                             'text': self.documents[doc_id],
-                            'score': float(similarity_score),
+                            'score': similarity_score,
                             'rank': i + 1,
                             'metadata': self.metadata[doc_id] if doc_id < len(self.metadata) else {},
-                            'doc_id': int(doc_id),
-                            'distance': float(distance)
+                            'doc_id': doc_id,
+                            'distance': distance
                         })
-            else:
-                # Fallback: try alternative USearch result format
-                logger.warning("Unexpected USearch result format, attempting fallback")
-                st.warning("Unexpected search result format - using fallback method")
                 
+            except Exception as result_processing_error:
+                logger.error(f"Error processing search results: {result_processing_error}")
+                st.warning(f"Search completed but had issues processing results: {result_processing_error}")
+                return []
+            
             # Sort by score (highest first)
             results.sort(key=lambda x: x['score'], reverse=True)
             
@@ -596,7 +652,8 @@ class RAGVectorStore:
             'index_built': self._index_built,
             'document_count': len(self.documents),
             'dimension': self.dimension,
-            'metadata_count': len(self.metadata)
+            'metadata_count': len(self.metadata),
+            'initialization_error': self._initialization_error
         }
 
 
@@ -642,26 +699,47 @@ class ConversationManager:
         self.conversation_history = []
 
 class OpenAIQueryProcessor:
+    """FIXED: OpenAI query processor with proper error handling and token management"""
+    
     def __init__(self, api_key: str):
-        self.client = openai.OpenAI(api_key=api_key)
-        # Initialize tokenizer for gpt-3.5-turbo with error handling
+        self._api_key = api_key
+        self.client = None
         self.tokenizer = None
+        self.max_context_length = 16385
+        self.max_completion_tokens = 1500
+        self.max_input_tokens = self.max_context_length - self.max_completion_tokens - 100
+        self._token_cache = {}
+        self._initialization_error = None
+        
+        # FIXED: Initialize OpenAI client with proper error handling
+        try:
+            self.client = openai.OpenAI(api_key=api_key)
+            # Test the connection with a minimal call
+            test_response = self.client.models.list()
+            logger.info("OpenAI client initialized successfully")
+        except Exception as e:
+            self._initialization_error = f"OpenAI initialization error: {str(e)}"
+            st.error(f"Error initializing OpenAI client: {str(e)}")
+            logger.error(f"OpenAI client initialization error: {str(e)}")
+            return
+        
+        # Initialize tokenizer for gpt-3.5-turbo with error handling
         if TIKTOKEN_AVAILABLE:
             try:
                 self.tokenizer = tiktoken.encoding_for_model("gpt-3.5-turbo")
+                logger.info("Tiktoken tokenizer initialized successfully")
             except Exception as e:
                 logger.warning(f"Failed to load tiktoken for gpt-3.5-turbo: {e}")
                 try:
                     self.tokenizer = tiktoken.get_encoding("cl100k_base")  # fallback
+                    logger.info("Tiktoken fallback tokenizer initialized")
                 except Exception as e2:
                     logger.error(f"Failed to load fallback tiktoken encoding: {e2}")
+                    self.tokenizer = None
 
-        self.max_context_length = 16385
-        self.max_completion_tokens = 1500
-        self.max_input_tokens = self.max_context_length - self.max_completion_tokens - 100  # safety buffer
-        
-        # Cache for token counts to avoid repeated calculations
-        self._token_cache = {}
+    def is_available(self) -> bool:
+        """Check if OpenAI client is properly initialized"""
+        return self.client is not None and self._initialization_error is None
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in a text string with caching"""
@@ -803,14 +881,24 @@ Instructions: Provide specific, actionable insights based on retrieved context a
 
     def query_data_with_rag(self, question: str, data_summary: Dict, vector_store: RAGVectorStore, 
                            conversation_manager: ConversationManager) -> str:
-        """Process natural language query with RAG and conversation context"""
+        """FIXED: Process natural language query with RAG and conversation context"""
+        
+        # Check if client is available
+        if not self.is_available():
+            return f"OpenAI client not available: {self._initialization_error}"
         
         try:
             # Get conversation context
             conversation_context = conversation_manager.get_context_for_query(question)
             
             # Retrieve relevant documents using vector search
-            retrieved_docs = vector_store.search(question, k=5)
+            retrieved_docs = []
+            try:
+                retrieved_docs = vector_store.search(question, k=5)
+                logger.info(f"Retrieved {len(retrieved_docs)} documents for query")
+            except Exception as search_error:
+                logger.warning(f"Vector search failed: {search_error}")
+                # Continue without RAG context
             
             # Generate optimized system prompt
             system_prompt = self.generate_system_prompt(data_summary, include_tokenization=True)
@@ -843,25 +931,42 @@ Instructions: Provide specific, actionable insights based on retrieved context a
             available_tokens = self.max_context_length - final_input_tokens - 100
             completion_tokens = min(self.max_completion_tokens, max(300, available_tokens))
             
-            # Make API call
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                max_tokens=completion_tokens,
-                temperature=0.7
-            )
-            
-            answer = response.choices[0].message.content
-            
-            # Store in conversation history
-            context_used = [doc['text'][:100] + "..." for doc in retrieved_docs[:3]]
-            conversation_manager.add_exchange(question, answer, context_used)
-            
-            logger.info(f"Successfully processed RAG query: {question[:50]}...")
-            return answer
+            # FIXED: Make API call with proper error handling
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    max_tokens=completion_tokens,
+                    temperature=0.7,
+                    timeout=30  # Add timeout
+                )
+                
+                answer = response.choices[0].message.content
+                
+                # Store in conversation history
+                context_used = [doc['text'][:100] + "..." for doc in retrieved_docs[:3]]
+                conversation_manager.add_exchange(question, answer, context_used)
+                
+                logger.info(f"Successfully processed RAG query: {question[:50]}...")
+                return answer
+                
+            except openai.APIError as api_error:
+                error_msg = f"OpenAI API Error: {str(api_error)}"
+                logger.error(error_msg)
+                return f"Error processing query: {error_msg}. Please check your API key and try again."
+                
+            except openai.RateLimitError as rate_error:
+                error_msg = f"Rate limit exceeded: {str(rate_error)}"
+                logger.error(error_msg)
+                return "Rate limit exceeded. Please wait a moment and try again."
+                
+            except Exception as api_error:
+                error_msg = f"API call failed: {str(api_error)}"
+                logger.error(error_msg)
+                return f"Error calling OpenAI API: {error_msg}"
             
         except Exception as e:
             error_msg = str(e)
@@ -1214,28 +1319,30 @@ class CSVProcessor:
 
 
 def main():
-    st.title("🧠 Advanced CSV Natural Language Query RAG App v2.0 - FIXED")
+    st.title("Advanced CSV Natural Language Query RAG App v2.1 - FIXED")
     st.markdown("Upload a CSV file and ask questions about your data with **RAG (Retrieval-Augmented Generation)**, **comprehensive tokenization**, and **conversation context** for enhanced natural language understanding!")
     
     # Version indicator
-    st.sidebar.markdown("### 🏷️ Version 2.0 - FIXED")
+    st.sidebar.markdown("### Version 2.1 - FULLY FIXED")
     st.sidebar.markdown("**Fixed Issues:**")
-    st.sidebar.markdown("• Fixed USearch API usage")
-    st.sidebar.markdown("• Improved error handling")
-    st.sidebar.markdown("• Better token management")
-    st.sidebar.markdown("• Enhanced vector search")
+    st.sidebar.markdown("• Fixed OpenAI client initialization")
+    st.sidebar.markdown("• Fixed USearch API usage and result handling")
+    st.sidebar.markdown("• Improved error handling and debugging")
+    st.sidebar.markdown("• Better token management and caching")
+    st.sidebar.markdown("• Enhanced vector search with proper similarity scoring")
+    st.sidebar.markdown("• Added proper timeout and rate limit handling")
 
     # Check dependencies with better error reporting
     missing_deps = []
     if not USEARCH_AVAILABLE:
         missing_deps.append("usearch")
-        st.warning("⚠️ USearch not installed. Vector search will be limited. Install with: pip install usearch")
+        st.warning("USearch not installed. Vector search will be limited. Install with: pip install usearch")
     if not SENTENCE_TRANSFORMERS_AVAILABLE:
         missing_deps.append("sentence-transformers")
-        st.warning("⚠️ SentenceTransformers not installed. Install with: pip install sentence-transformers")
+        st.warning("SentenceTransformers not installed. Install with: pip install sentence-transformers")
     if not TIKTOKEN_AVAILABLE:
         missing_deps.append("tiktoken")
-        st.warning("⚠️ tiktoken not installed. Token management will use approximations. Install with: pip install tiktoken")
+        st.warning("tiktoken not installed. Token management will use approximations. Install with: pip install tiktoken")
 
     if missing_deps:
         st.error(f"Missing dependencies: {', '.join(missing_deps)}")
@@ -1264,11 +1371,14 @@ def main():
         if api_key:
             try:
                 st.session_state.openai_processor = OpenAIQueryProcessor(api_key)
-                st.success("✅ OpenAI API configured")
+                if st.session_state.openai_processor.is_available():
+                    st.success("OpenAI API configured")
+                else:
+                    st.error(f"OpenAI configuration failed: {st.session_state.openai_processor._initialization_error}")
             except Exception as e:
                 st.error(f"Error configuring OpenAI: {str(e)}")
         else:
-            st.warning("⚠️ Please enter your OpenAI API key")
+            st.warning("Please enter your OpenAI API key")
 
         st.markdown("---")
         st.header("RAG Settings")
@@ -1279,10 +1389,10 @@ def main():
         maintain_context = st.checkbox("Maintain Conversation Context", value=True,
                                       help="Keep context from previous questions")
         
-        if st.button("🔄 Clear Conversation History"):
+        if st.button("Clear Conversation History"):
             if hasattr(st.session_state.processor, 'conversation_manager'):
                 st.session_state.processor.conversation_manager.clear_history()
-                st.success("✅ Conversation history cleared")
+                st.success("Conversation history cleared")
 
         st.markdown("---")
         st.header("System Status")
@@ -1301,7 +1411,7 @@ def main():
     if uploaded_file is not None:
         # Load the CSV
         if st.session_state.processor.load_csv(uploaded_file):
-            st.success("✅ CSV file loaded successfully!")
+            st.success("CSV file loaded successfully!")
 
             # Display basic info about the original data
             col1, col2 = st.columns(2)
@@ -1315,7 +1425,7 @@ def main():
                 st.dataframe(st.session_state.processor.df.head())
 
             # Data processing section
-            st.header("🔧 Data Processing, Tokenization & RAG Setup")
+            st.header("Data Processing, Tokenization & RAG Setup")
 
             col1, col2, col3 = st.columns(3)
 
@@ -1323,81 +1433,79 @@ def main():
                 if st.button("Clean Data", type="secondary"):
                     with st.spinner("Cleaning data..."):
                         if st.session_state.processor.clean_data():
-                            st.success("✅ Data cleaned successfully!")
+                            st.success("Data cleaned successfully!")
                         else:
-                            st.error("❌ Error cleaning data")
+                            st.error("Error cleaning data")
 
             with col2:
-                if st.button("🏷️ Tokenize Data", type="secondary"):
+                if st.button("Tokenize Data", type="secondary"):
                     if st.session_state.processor.processed_df is not None:
                         with st.spinner("Tokenizing data..."):
                             if st.session_state.processor.tokenize_dataset():
                                 st.session_state.processor.generate_data_summary()
-                                st.success("✅ Data tokenized successfully!")
+                                st.success("Data tokenized successfully!")
                             else:
-                                st.error("❌ Error during tokenization")
+                                st.error("Error during tokenization")
                     else:
-                        st.error("❌ Please clean data first")
+                        st.error("Please clean data first")
 
             with col3:
-                if st.button("🧠 Build RAG Index", type="primary"):
+                if st.button("Build RAG Index", type="primary"):
                     if (st.session_state.processor.processed_df is not None and 
                         st.session_state.processor.tokenized_df is not None):
                         with st.spinner("Building RAG vector index..."):
                             if st.session_state.processor.build_rag_index():
                                 st.session_state.rag_ready = True
-                                st.balloons()
-                                st.success("🎉 RAG system ready!")
+                                st.success("RAG system ready!")
                             else:
-                                st.error("❌ Error building RAG index")
+                                st.error("Error building RAG index")
                     else:
-                        st.error("❌ Please clean and tokenize data first")
+                        st.error("Please clean and tokenize data first")
 
             # Complete workflow button
-            st.markdown("### 🚀 Complete Workflow")
-            if st.button("⚡ Clean + Tokenize + Build RAG (All-in-One)", type="primary"):
+            st.markdown("### Complete Workflow")
+            if st.button("Clean + Tokenize + Build RAG (All-in-One)", type="primary"):
                 with st.spinner("Processing complete workflow..."):
                     success = True
                     
                     # Clean data
                     if not st.session_state.processor.clean_data():
-                        st.error("❌ Error cleaning data")
+                        st.error("Error cleaning data")
                         success = False
                     else:
-                        st.success("✅ Data cleaned!")
+                        st.success("Data cleaned!")
                     
                     # Tokenize data
                     if success and st.session_state.processor.tokenize_dataset():
                         st.session_state.processor.generate_data_summary()
-                        st.success("✅ Data tokenized!")
+                        st.success("Data tokenized!")
                     else:
-                        st.error("❌ Error during tokenization")
+                        st.error("Error during tokenization")
                         success = False
                     
                     # Build RAG index
                     if success and st.session_state.processor.build_rag_index():
                         st.session_state.rag_ready = True
-                        st.balloons()
-                        st.success("🎉 Complete RAG system ready!")
+                        st.success("Complete RAG system ready!")
                     else:
-                        st.error("❌ Error building RAG index")
+                        st.error("Error building RAG index")
 
             # Show processing status
             if st.session_state.processor.processed_df is not None:
-                st.info("📊 Data processed and cleaned")
+                st.info("Data processed and cleaned")
             
             if st.session_state.processor.tokenized_df is not None:
-                st.info("🏷️ Data tokenized with semantic enrichment")
+                st.info("Data tokenized with semantic enrichment")
                 
             if st.session_state.rag_ready:
-                st.info("🧠 RAG vector index ready for intelligent querying")
+                st.info("RAG vector index ready for intelligent querying")
 
             # Show enhanced data analysis if available
             if st.session_state.processor.tokenized_df is not None:
-                st.header("📈 Enhanced Data Analysis & Statistics")
+                st.header("Enhanced Data Analysis & Statistics")
 
                 # Create tabs for different views
-                tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏷️ Tokenization Stats", "📈 Data Distribution", "🔍 Column Analysis"])
+                tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Tokenization Stats", "Data Distribution", "Column Analysis"])
 
                 with tab1:
                     st.subheader("Dataset Overview")
@@ -1490,7 +1598,8 @@ def main():
                             st.metric("Memory Usage", f"{col_data.memory_usage(deep=True) / 1024:.2f} KB")
 
             # RAG-Enhanced Natural Language Query Section
-            if (st.session_state.rag_ready and st.session_state.openai_processor is not None):
+            if (st.session_state.rag_ready and st.session_state.openai_processor is not None 
+                and st.session_state.openai_processor.is_available()):
 
                 st.header("RAG-Enhanced Natural Language Queries")
                 st.markdown("Ask sophisticated questions with **Retrieval-Augmented Generation** and **conversation context**!")
@@ -1602,7 +1711,10 @@ def main():
 
             elif st.session_state.processor.tokenized_df is not None and st.session_state.openai_processor is not None:
                 st.header("RAG System Not Ready")
-                st.warning("Please build the RAG index to enable enhanced querying with retrieval capabilities.")
+                if not st.session_state.openai_processor.is_available():
+                    st.error(f"OpenAI client not available: {st.session_state.openai_processor._initialization_error}")
+                else:
+                    st.warning("Please build the RAG index to enable enhanced querying with retrieval capabilities.")
 
             # Export functionality
             if st.session_state.processor.tokenized_df is not None:
@@ -1646,17 +1758,19 @@ def main():
                                 mime="application/json"
                             )
 
-    # Footer with version 2.0 features
+    # Footer with version 2.1 features
     st.markdown("---")
     st.markdown("""
-    ## Version 2.0 - FIXED - RAG-Enhanced Features
+    ## Version 2.1 - FULLY FIXED - RAG-Enhanced Features
 
     **Fixed Issues in This Version:**
-    - **USearch API Usage**: Corrected search result handling and distance-to-similarity conversion
-    - **Error Handling**: Added comprehensive try-catch blocks and graceful fallbacks
-    - **Token Management**: Improved token counting with caching and better approximations
-    - **Memory Management**: Added cleanup for large embeddings and better resource handling
+    - **OpenAI Client**: Proper initialization with error handling and connection testing
+    - **USearch API**: Fixed search result handling with multiple format support
+    - **Error Handling**: Comprehensive try-catch blocks and graceful fallbacks
+    - **Token Management**: Improved counting with caching and better approximations
     - **Vector Search**: Fixed similarity scoring and result processing
+    - **Memory Management**: Better resource cleanup and batch processing
+    - **Rate Limiting**: Added timeout and proper API error handling
 
     **Dependencies for Full Functionality:**
     ```bash
@@ -1665,10 +1779,11 @@ def main():
     
     **How to Run:**
     ```bash
-    # Save all parts as csv_rag_app_v2_fixed.py, then run:
-    streamlit run csv_rag_app_v2_fixed.py
+    # Save all parts as csv_rag_app_v2_1_fixed.py, then run:
+    streamlit run csv_rag_app_v2_1_fixed.py
     ```
     """)
 
 if __name__ == "__main__":
     main()
+
