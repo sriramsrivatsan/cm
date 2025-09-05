@@ -1159,9 +1159,15 @@ class JobCSVProcessor:
 
             # Clean salary information
             if 'job_salary' in self.processed_df.columns:
-                # Standardize salary formats
-                self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
-                self.processed_df['job_salary'] = self.processed_df['job_salary'].str.replace(r'[\$,]', '', regex=True)
+                try:
+                    # Standardize salary formats
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
+                    # Remove dollar signs and commas
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].str.replace(r'[\$,]', '', regex=True)
+                except Exception as e:
+                    logger.warning(f"Could not clean salary column: {e}")
+                    # Fallback: just convert to string
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
 
             logger.info(f"Job data cleaning completed: {len(self.processed_df)} rows, {len(self.processed_df.columns)} columns")
             return True
