@@ -5,6 +5,7 @@ import openai
 from io import StringIO
 import json
 import re
+import os
 from typing import Dict, List, Any, Tuple, Optional
 import plotly.express as px
 import plotly.graph_objects as go
@@ -55,13 +56,13 @@ try:
     USEARCH_AVAILABLE = True
 except ImportError:
     USEARCH_AVAILABLE = False
+
 try:
     import faiss
     FAISS_AVAILABLE = True
 except Exception:
     faiss = None
     FAISS_AVAILABLE = False
-
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -77,24 +78,256 @@ except ImportError:
 
 warnings.filterwarnings('ignore')
 
-
 def ensure_dir_for_file(path: str):
     """Ensure the directory for a given file path exists."""
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
 
-
 # Set page config
 st.set_page_config(
-    page_title="Job Data RAG Analyzer v3.0",
-    page_icon="💼",
+    page_title="Creative Professionals Job Data RAG Analyzer v3.1",
+    page_icon="🎨",
     layout="wide"
 )
 
+# Enhanced creative software and tools mapping
+CREATIVE_SOFTWARE_MAPPING = {
+    # Adobe Creative Suite
+    "adobe_suite": {
+        "photoshop": ["Adobe Photoshop", "Photoshop", "PS", "PSD"],
+        "lightroom": ["Adobe Lightroom", "Lightroom", "LR"],
+        "illustrator": ["Adobe Illustrator", "Illustrator", "AI"],
+        "indesign": ["Adobe InDesign", "InDesign", "ID"],
+        "premiere": ["Adobe Premiere Pro", "Premiere Pro", "Premiere", "PPRO", "PR"],
+        "after_effects": ["Adobe After Effects", "After Effects", "AE"],
+        "xd": ["Adobe XD", "XD"],
+        "dimension": ["Adobe Dimension"],
+        "animate": ["Adobe Animate"],
+        "audition": ["Adobe Audition"],
+        "bridge": ["Adobe Bridge"],
+        "character_animator": ["Adobe Character Animator"],
+        "dreamweaver": ["Adobe Dreamweaver"],
+        "fresco": ["Adobe Fresco"],
+        "media_encoder": ["Adobe Media Encoder"],
+        "prelude": ["Adobe Prelude"],
+        "rush": ["Adobe Premiere Rush", "Premiere Rush"],
+        "spark": ["Adobe Spark"],
+        "substance": ["Adobe Substance", "Substance Painter", "Substance Designer"]
+    },
+    
+    # Non-Adobe Creative Software
+    "non_adobe": {
+        "final_cut_pro": ["Final Cut Pro", "FCP", "FCPX"],
+        "davinci_resolve": ["DaVinci Resolve", "Resolve", "Davinci"],
+        "avid": ["Avid Media Composer", "Media Composer", "Avid"],
+        "pro_tools": ["Pro Tools", "Protools"],
+        "logic_pro": ["Logic Pro", "Logic"],
+        "sketch": ["Sketch"],
+        "figma": ["Figma"],
+        "canva": ["Canva"],
+        "gimp": ["GIMP"],
+        "blender": ["Blender"],
+        "maya": ["Autodesk Maya", "Maya"],
+        "3ds_max": ["3ds Max", "3D Studio Max"],
+        "cinema_4d": ["Cinema 4D", "C4D"],
+        "zbrush": ["ZBrush"],
+        "unity": ["Unity"],
+        "unreal": ["Unreal Engine", "UE4", "UE5"],
+        "procreate": ["Procreate"],
+        "affinity": ["Affinity Designer", "Affinity Photo", "Affinity Publisher"],
+        "capture_one": ["Capture One"],
+        "luminar": ["Luminar"],
+        "corel": ["CorelDRAW", "Corel Painter"],
+        "keynote": ["Keynote"],
+        "powerpoint": ["PowerPoint", "PPT"],
+        "prezi": ["Prezi"],
+        "invision": ["InVision"],
+        "marvel": ["Marvel"],
+        "principle": ["Principle"],
+        "framer": ["Framer"],
+        "webflow": ["Webflow"],
+        "wordpress": ["WordPress"],
+        "squarespace": ["Squarespace"],
+        "wix": ["Wix"]
+    },
+    
+    # AI/Creative AI Tools
+    "ai_tools": {
+        "midjourney": ["Midjourney"],
+        "dall_e": ["DALL-E", "DALLE", "Dall-E"],
+        "stable_diffusion": ["Stable Diffusion"],
+        "chatgpt": ["ChatGPT", "GPT-4", "GPT-3"],
+        "runway": ["Runway ML", "Runway"],
+        "adobe_sensei": ["Adobe Sensei"],
+        "topaz": ["Topaz Labs"],
+        "gigapixel": ["Gigapixel AI"],
+        "descript": ["Descript"],
+        "synthesia": ["Synthesia"],
+        "lumen5": ["Lumen5"],
+        "jasper": ["Jasper AI"],
+        "copy_ai": ["Copy.ai"],
+        "notion_ai": ["Notion AI"]
+    }
+}
+
+# Job role categorization patterns
+JOB_ROLE_PATTERNS = {
+    "designer": {
+        "patterns": [
+            r'\b(graphic|visual|ui|ux|web|digital|brand|creative|product|motion)\s*(designer?)\b',
+            r'\bdesigner?\b',
+            r'\b(art\s*director|creative\s*director)\b',
+            r'\b(brand|visual|graphic)\s*(specialist|artist)\b'
+        ],
+        "keywords": ["design", "designer", "graphic", "visual", "ui", "ux", "creative", "art director"]
+    },
+    
+    "video_professional": {
+        "patterns": [
+            r'\b(video|motion)\s*(editor?|producer?|artist)\b',
+            r'\b(film|movie|cinema)\s*(editor?|producer?|maker)\b',
+            r'\b(animator|animation)\b',
+            r'\b(videographer|cinematographer)\b',
+            r'\b(post[\s-]*production|vfx|visual\s*effects)\b'
+        ],
+        "keywords": ["video", "motion", "film", "animation", "editor", "producer", "vfx", "cinematographer"]
+    },
+    
+    "photo_professional": {
+        "patterns": [
+            r'\b(photo|photography)\s*(editor?|retoucher?|specialist)\b',
+            r'\bphotographer\b',
+            r'\b(photo|image)\s*(manipulation|enhancement|processing)\b',
+            r'\bretoucher?\b'
+        ],
+        "keywords": ["photo", "photography", "photographer", "retoucher", "image", "photo editing"]
+    },
+    
+    "creative_professional": {
+        "patterns": [
+            r'\b(creative|content)\s*(professional|specialist|manager|director)\b',
+            r'\b(multimedia|digital\s*media|content)\s*(artist|creator|specialist)\b',
+            r'\b(marketing|brand)\s*(creative|designer|specialist)\b'
+        ],
+        "keywords": ["creative", "content", "multimedia", "digital media", "marketing creative"]
+    }
+}
+
+# Creative skills and soft skills mapping
+CREATIVE_SKILLS = {
+    "technical_skills": [
+        "color theory", "typography", "layout", "composition", "branding", "logo design",
+        "web design", "mobile design", "responsive design", "user experience", "user interface",
+        "wireframing", "prototyping", "mockups", "storyboarding", "concept development",
+        "photo retouching", "image manipulation", "color correction", "photo editing",
+        "video editing", "motion graphics", "animation", "visual effects", "compositing",
+        "3d modeling", "rendering", "texturing", "lighting", "rigging"
+    ],
+    
+    "soft_skills": [
+        "collaboration", "communication", "presentation", "project management", "time management",
+        "creativity", "problem solving", "attention to detail", "adaptability", "teamwork",
+        "client management", "feedback incorporation", "deadline management", "multitasking",
+        "critical thinking", "artistic vision", "trend awareness", "brand understanding"
+    ],
+    
+    "creative_tasks": [
+        "brand identity", "logo creation", "marketing materials", "social media graphics",
+        "website design", "app design", "print design", "packaging design", "illustration",
+        "photo shoot", "product photography", "portrait photography", "event photography",
+        "video production", "commercial videos", "explainer videos", "social media videos",
+        "documentary", "promotional content", "advertising campaigns", "content creation"
+    ]
+}
+
+def detect_creative_software_and_skills(text: str) -> Dict[str, List[str]]:
+    """Enhanced detection of creative software, AI tools, and skills in job descriptions"""
+    if not text or pd.isna(text):
+        return {"adobe_apps": [], "non_adobe_apps": [], "ai_tools": [], "technical_skills": [], "soft_skills": [], "creative_tasks": []}
+    
+    text_lower = text.lower()
+    results = {
+        "adobe_apps": [],
+        "non_adobe_apps": [],
+        "ai_tools": [],
+        "technical_skills": [],
+        "soft_skills": [],
+        "creative_tasks": []
+    }
+    
+    # Detect Adobe apps
+    for app_key, variations in CREATIVE_SOFTWARE_MAPPING["adobe_suite"].items():
+        for variation in variations:
+            if re.search(r'\b' + re.escape(variation.lower()) + r'\b', text_lower):
+                results["adobe_apps"].append(variation)
+                break
+    
+    # Detect non-Adobe apps
+    for app_key, variations in CREATIVE_SOFTWARE_MAPPING["non_adobe"].items():
+        for variation in variations:
+            if re.search(r'\b' + re.escape(variation.lower()) + r'\b', text_lower):
+                results["non_adobe_apps"].append(variation)
+                break
+    
+    # Detect AI tools
+    for ai_key, variations in CREATIVE_SOFTWARE_MAPPING["ai_tools"].items():
+        for variation in variations:
+            if re.search(r'\b' + re.escape(variation.lower()) + r'\b', text_lower):
+                results["ai_tools"].append(variation)
+                break
+    
+    # Detect technical skills
+    for skill in CREATIVE_SKILLS["technical_skills"]:
+        if re.search(r'\b' + re.escape(skill.lower()) + r'\b', text_lower):
+            results["technical_skills"].append(skill)
+    
+    # Detect soft skills
+    for skill in CREATIVE_SKILLS["soft_skills"]:
+        if re.search(r'\b' + re.escape(skill.lower()) + r'\b', text_lower):
+            results["soft_skills"].append(skill)
+    
+    # Detect creative tasks
+    for task in CREATIVE_SKILLS["creative_tasks"]:
+        if re.search(r'\b' + re.escape(task.lower()) + r'\b', text_lower):
+            results["creative_tasks"].append(task)
+    
+    # Remove duplicates
+    for key in results:
+        results[key] = list(set(results[key]))
+    
+    return results
+
+def categorize_job_role(job_title: str, job_description: str = "") -> Dict[str, bool]:
+    """Categorize job roles based on title and description"""
+    combined_text = f"{job_title} {job_description}".lower()
+    
+    categories = {
+        "is_designer": False,
+        "is_video_professional": False,
+        "is_photo_professional": False,
+        "is_creative_professional": False
+    }
+    
+    for role_type, config in JOB_ROLE_PATTERNS.items():
+        # Check patterns
+        for pattern in config["patterns"]:
+            if re.search(pattern, combined_text, re.IGNORECASE):
+                categories[f"is_{role_type}"] = True
+                break
+        
+        # Check keywords if pattern didn't match
+        if not categories[f"is_{role_type}"]:
+            for keyword in config["keywords"]:
+                if keyword.lower() in combined_text:
+                    categories[f"is_{role_type}"] = True
+                    break
+    
+    return categories
+
 
 class RAGVectorStore:
-    """Fixed vector store for RAG functionality optimized for job data"""
+    """Enhanced vector store for creative professionals job analysis"""
     
     def __init__(self):
         self.embedder = None
@@ -104,8 +337,6 @@ class RAGVectorStore:
         self.dimension = 384
         self._index_built = False
         self._initialization_error = None
-
-        # vector backend preference: 'usearch', 'faiss', or 'bruteforce'
         self.backend_preference = 'usearch'
         self.backend = None
         
@@ -133,17 +364,16 @@ class RAGVectorStore:
             st.error(f"Error loading sentence transformer: {str(e)}")
             return
             
-        # Initialize USearch index
+        # Initialize index
         try:
             self._init_index()
-            st.success("USearch index initialized successfully")
+            st.success("Vector index initialized successfully")
         except Exception as e:
-            self._initialization_error = f"USearch error: {str(e)}"
-            st.error(f"Error initializing USearch index: {str(e)}")
-    
-    
-def _init_index(self):
-        """Initialize the vector index according to backend preference (usearch preferred)."""
+            self._initialization_error = f"Index error: {str(e)}"
+            st.error(f"Error initializing vector index: {str(e)}")
+
+    def _init_index(self):
+        """Initialize the vector index according to backend preference"""
         self.index = None
         self.backend = None
         try:
@@ -177,7 +407,7 @@ def _init_index(self):
                 self._initialization_error is None)
     
     def build_index(self, chunks: List[Dict]) -> bool:
-        """Build USearch index from job data chunks"""
+        """Build vector index from creative job data chunks"""
         if not self.is_available():
             st.error("RAG system not available. Install required dependencies.")
             return False
@@ -196,7 +426,7 @@ def _init_index(self):
             # Extract texts for embedding
             texts = [chunk['text'] for chunk in chunks]
             
-            st.info(f"Building vector index for {len(texts)} job data documents...")
+            st.info(f"Building vector index for {len(texts)} creative job documents...")
             progress_bar = st.progress(0)
             
             # Process in smaller batches for stability
@@ -232,25 +462,25 @@ def _init_index(self):
                                 continue
                             
                             if getattr(self, 'backend', 'usearch') == 'usearch':
-                            self.index.add(doc_id, embedding_vector)
-                            self.documents.append(batch_texts[j])
-                            self.metadata.append(batch_chunks[j].get('metadata', {}))
-                        elif getattr(self, 'backend', '') == 'faiss':
-                            # faiss expects 2D array for add
-                            try:
-                                self.index.add(np.expand_dims(embedding_vector, axis=0))
+                                self.index.add(doc_id, embedding_vector)
                                 self.documents.append(batch_texts[j])
                                 self.metadata.append(batch_chunks[j].get('metadata', {}))
-                            except Exception as e:
-                                logger.error(f'FAISS add error: {e}')
-                        else:
-                            # brute-force store embeddings
-                            if not hasattr(self, '_brute_vectors'):
-                                self._brute_vectors = []
-                            self._brute_vectors.append(embedding_vector.tolist())
-                            self.documents.append(batch_texts[j])
-                            self.metadata.append(batch_chunks[j].get('metadata', {}))
-except Exception as add_error:
+                            elif getattr(self, 'backend', '') == 'faiss':
+                                # faiss expects 2D array for add
+                                try:
+                                    self.index.add(np.expand_dims(embedding_vector, axis=0))
+                                    self.documents.append(batch_texts[j])
+                                    self.metadata.append(batch_chunks[j].get('metadata', {}))
+                                except Exception as e:
+                                    logger.error(f'FAISS add error: {e}')
+                            else:
+                                # brute-force store embeddings
+                                if not hasattr(self, '_brute_vectors'):
+                                    self._brute_vectors = []
+                                self._brute_vectors.append(embedding_vector.tolist())
+                                self.documents.append(batch_texts[j])
+                                self.metadata.append(batch_chunks[j].get('metadata', {}))
+                        except Exception as add_error:
                             logger.error(f"Error adding document {doc_id}: {str(add_error)}")
                             continue
                     
@@ -299,40 +529,37 @@ except Exception as add_error:
                 logger.error(f"Query embedding dimension mismatch")
                 return []
             
-            # Perform search
-            if getattr(self,'backend','usearch') == 'faiss':
-            D, I = self.index.search(np.array([query_embedding], dtype=np.float32), k)
-            doc_ids = I[0]
-            distances = D[0]
-        elif getattr(self,'backend','usearch') == 'usearch':
-            search_results = self.index.search(query_embedding, k)
-            # existing handling will read from search_results
-            doc_ids = getattr(search_results, 'keys', [])
-            distances = getattr(search_results, 'distances', [])
-        else:
-            # brute-force search
-            vecs = np.array(getattr(self, '_brute_vectors', []), dtype=np.float32)
-            if vecs.size == 0:
-                return []
-            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-            norms[norms==0] = 1.0
-            vecs = vecs / norms
-            qv = query_embedding / max(1e-12, np.linalg.norm(query_embedding))
-            sims = (vecs @ qv).tolist()
-            idxs_scores = sorted(enumerate(sims), key=lambda x: x[1], reverse=True)[:k]
-            doc_ids = [i for i,s in idxs_scores]
-            distances = [s for i,s in idxs_scores]
-results = []
+            results = []
             
-            # Handle different USearch result formats
-            if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
-                doc_ids = search_results.keys
-                distances = search_results.distances
-            elif isinstance(search_results, tuple) and len(search_results) == 2:
-                doc_ids, distances = search_results
+            # Perform search based on backend
+            if getattr(self, 'backend', 'usearch') == 'faiss':
+                D, I = self.index.search(np.array([query_embedding], dtype=np.float32), k)
+                doc_ids = I[0]
+                distances = D[0]
+            elif getattr(self, 'backend', 'usearch') == 'usearch':
+                search_results = self.index.search(query_embedding, k)
+                # Handle different USearch result formats
+                if hasattr(search_results, 'keys') and hasattr(search_results, 'distances'):
+                    doc_ids = search_results.keys
+                    distances = search_results.distances
+                elif isinstance(search_results, tuple) and len(search_results) == 2:
+                    doc_ids, distances = search_results
+                else:
+                    doc_ids = getattr(search_results, 'keys', [])
+                    distances = getattr(search_results, 'distances', [])
             else:
-                doc_ids = getattr(search_results, 'keys', [])
-                distances = getattr(search_results, 'distances', [])
+                # brute-force search
+                vecs = np.array(getattr(self, '_brute_vectors', []), dtype=np.float32)
+                if vecs.size == 0:
+                    return []
+                norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+                norms[norms == 0] = 1.0
+                vecs = vecs / norms
+                qv = query_embedding / max(1e-12, np.linalg.norm(query_embedding))
+                sims = (vecs @ qv).tolist()
+                idxs_scores = sorted(enumerate(sims), key=lambda x: x[1], reverse=True)[:k]
+                doc_ids = [i for i, s in idxs_scores]
+                distances = [1.0 - s for i, s in idxs_scores]  # Convert similarity to distance
             
             # Convert to lists if needed
             if hasattr(doc_ids, 'tolist'):
@@ -371,53 +598,83 @@ results = []
             return []
     
     def create_document_chunks(self, processed_df: pd.DataFrame, data_summary: Dict) -> List[Dict]:
-        """Create optimized document chunks from job data"""
+        """Create optimized document chunks from creative job data"""
         if not self.is_available():
             return []
             
         chunks = []
         
         try:
-            # 1. Create row-level job documents (main content)
+            # 1. Create enhanced job-level documents with creative analysis
             for idx, row in processed_df.iterrows():
-                # Create comprehensive job description
+                # Basic job info
                 job_text_parts = []
                 
-                # Basic job info
                 if pd.notna(row.get('company')):
                     job_text_parts.append(f"Company: {row['company']}")
                 
-                if pd.notna(row.get('summary_job_title')):
-                    job_text_parts.append(f"Job Title: {row['summary_job_title']}")
-                elif pd.notna(row.get('displayed_job_title')):
-                    job_text_parts.append(f"Job Title: {row['displayed_job_title']}")
+                title = row.get('summary_job_title') or row.get('displayed_job_title') or row.get('Summary job title') or row.get('Displayed job title')
+                if pd.notna(title):
+                    job_text_parts.append(f"Job Title: {title}")
                 
                 # Location information
                 location_parts = []
-                if pd.notna(row.get('city_job_location')):
-                    location_parts.append(row['city_job_location'])
-                if pd.notna(row.get('state_job_location')):
-                    location_parts.append(row['state_job_location'])
-                if pd.notna(row.get('country_job_location')):
-                    location_parts.append(row['country_job_location'])
+                for loc_col in ['city_job_location', 'City job location']:
+                    if loc_col in row and pd.notna(row[loc_col]):
+                        location_parts.append(row[loc_col])
+                        break
+                
+                for loc_col in ['state_job_location', 'State job location']:
+                    if loc_col in row and pd.notna(row[loc_col]):
+                        location_parts.append(row[loc_col])
+                        break
+                
+                for loc_col in ['country_job_location', 'Country job location']:
+                    if loc_col in row and pd.notna(row[loc_col]):
+                        location_parts.append(row[loc_col])
+                        break
                 
                 if location_parts:
                     job_text_parts.append(f"Location: {', '.join(location_parts)}")
                 
-                # Job description (truncated if too long)
-                if pd.notna(row.get('job_description')):
-                    desc = str(row['job_description'])[:500]  # Limit description length
-                    job_text_parts.append(f"Description: {desc}")
+                # Job description with creative analysis
+                description = row.get('job_description') or row.get('Job Description')
+                if pd.notna(description):
+                    desc_text = str(description)[:1000]  # Increased limit for creative jobs
+                    job_text_parts.append(f"Description: {desc_text}")
+                    
+                    # Analyze creative requirements
+                    creative_analysis = detect_creative_software_and_skills(desc_text)
+                    
+                    if creative_analysis['adobe_apps']:
+                        job_text_parts.append(f"Adobe Apps Required: {', '.join(creative_analysis['adobe_apps'])}")
+                    
+                    if creative_analysis['non_adobe_apps']:
+                        job_text_parts.append(f"Non-Adobe Apps Required: {', '.join(creative_analysis['non_adobe_apps'])}")
+                    
+                    if creative_analysis['ai_tools']:
+                        job_text_parts.append(f"AI Tools Required: {', '.join(creative_analysis['ai_tools'])}")
+                    
+                    if creative_analysis['technical_skills']:
+                        job_text_parts.append(f"Technical Skills: {', '.join(creative_analysis['technical_skills'][:5])}")
+                    
+                    if creative_analysis['soft_skills']:
+                        job_text_parts.append(f"Soft Skills: {', '.join(creative_analysis['soft_skills'][:5])}")
                 
                 # Salary information
-                if pd.notna(row.get('job_salary')):
-                    job_text_parts.append(f"Salary: {row['job_salary']}")
+                salary = row.get('job_salary') or row.get('Job salary')
+                if pd.notna(salary):
+                    job_text_parts.append(f"Salary: {salary}")
                 
                 # Date information
-                if pd.notna(row.get('date')):
-                    job_text_parts.append(f"Date: {row['date']}")
+                date = row.get('date') or row.get('Date')
+                if pd.notna(date):
+                    job_text_parts.append(f"Date: {date}")
                 
                 job_text = ". ".join(job_text_parts)
+                
+                # Categorize job role
+                job_categories = categorize_job_role(str(title), str(description) if pd.notna(description) else "")
                 
                 chunks.append({
                     'text': job_text,
@@ -425,72 +682,131 @@ results = []
                     'job_id': idx,
                     'metadata': {
                         'company': str(row.get('company', 'Unknown')),
-                        'title': str(row.get('summary_job_title', row.get('displayed_job_title', 'Unknown'))),
+                        'title': str(title) if pd.notna(title) else 'Unknown',
                         'location': ', '.join(location_parts) if location_parts else 'Unknown',
-                        'row_index': idx
+                        'row_index': idx,
+                        'is_designer': job_categories.get('is_designer', False),
+                        'is_video_professional': job_categories.get('is_video_professional', False),
+                        'is_photo_professional': job_categories.get('is_photo_professional', False),
+                        'is_creative_professional': job_categories.get('is_creative_professional', False),
+                        'adobe_apps': creative_analysis.get('adobe_apps', []),
+                        'non_adobe_apps': creative_analysis.get('non_adobe_apps', []),
+                        'ai_tools': creative_analysis.get('ai_tools', []),
+                        'technical_skills': creative_analysis.get('technical_skills', []),
+                        'soft_skills': creative_analysis.get('soft_skills', [])
                     }
                 })
             
-            # 2. Create company-level aggregations
-            if 'company' in processed_df.columns:
-                company_groups = processed_df.groupby('company')
-                for company, group in company_groups:
-                    if pd.notna(company) and company != 'Unknown':
-                        job_count = len(group)
-                        titles = group['summary_job_title'].dropna().unique()[:5]  # Top 5 titles
-                        locations = group['city_job_location'].dropna().unique()[:3]  # Top 3 locations
-                        
-                        company_text = f"Company {company} has {job_count} job listings"
-                        if len(titles) > 0:
-                            company_text += f" for positions: {', '.join(titles)}"
-                        if len(locations) > 0:
-                            company_text += f" in locations: {', '.join(locations)}"
-                        
-                        chunks.append({
-                            'text': company_text,
-                            'type': 'company_summary',
-                            'company': company,
-                            'metadata': {
-                                'job_count': job_count,
-                                'company_name': company
-                            }
-                        })
+            # 2. Create aggregated chunks for specific analysis questions
             
-            # 3. Create location-based aggregations
-            if 'city_job_location' in processed_df.columns:
-                location_groups = processed_df.groupby('city_job_location')
-                for location, group in location_groups:
-                    if pd.notna(location) and location != 'Unknown':
-                        job_count = len(group)
-                        companies = group['company'].dropna().unique()[:3]
-                        titles = group['summary_job_title'].dropna().unique()[:3]
-                        
-                        location_text = f"Location {location} has {job_count} job opportunities"
-                        if len(companies) > 0:
-                            location_text += f" from companies: {', '.join(companies)}"
-                        if len(titles) > 0:
-                            location_text += f" for roles: {', '.join(titles)}"
-                        
-                        chunks.append({
-                            'text': location_text,
-                            'type': 'location_summary',
-                            'location': location,
-                            'metadata': {
-                                'job_count': job_count,
-                                'location_name': location
-                            }
-                        })
+            # Adobe vs Non-Adobe analysis chunks
+            adobe_only_jobs = []
+            non_adobe_only_jobs = []
+            both_apps_jobs = []
             
-            # 4. Create dataset overview
+            for idx, row in processed_df.iterrows():
+                description = row.get('job_description') or row.get('Job Description')
+                if pd.notna(description):
+                    creative_analysis = detect_creative_software_and_skills(str(description))
+                    has_adobe = len(creative_analysis.get('adobe_apps', [])) > 0
+                    has_non_adobe = len(creative_analysis.get('non_adobe_apps', [])) > 0
+                    
+                    if has_adobe and not has_non_adobe:
+                        adobe_only_jobs.append(idx)
+                    elif has_non_adobe and not has_adobe:
+                        non_adobe_only_jobs.append(idx)
+                    elif has_adobe and has_non_adobe:
+                        both_apps_jobs.append(idx)
+            
+            # Create summary chunks
+            if non_adobe_only_jobs:
+                non_adobe_text = f"Jobs requiring only non-Adobe applications: {len(non_adobe_only_jobs)} positions found"
+                chunks.append({
+                    'text': non_adobe_text,
+                    'type': 'software_analysis',
+                    'analysis_type': 'non_adobe_only',
+                    'metadata': {'job_count': len(non_adobe_only_jobs), 'job_indices': non_adobe_only_jobs}
+                })
+            
+            if both_apps_jobs:
+                both_apps_text = f"Jobs requiring both Adobe and non-Adobe applications: {len(both_apps_jobs)} positions found"
+                chunks.append({
+                    'text': both_apps_text,
+                    'type': 'software_analysis',
+                    'analysis_type': 'both_adobe_and_non_adobe',
+                    'metadata': {'job_count': len(both_apps_jobs), 'job_indices': both_apps_jobs}
+                })
+            
+            # 3. Create role-specific aggregations
+            designer_jobs = []
+            video_jobs = []
+            photo_jobs = []
+            
+            for idx, row in processed_df.iterrows():
+                title = row.get('summary_job_title') or row.get('displayed_job_title') or row.get('Summary job title') or row.get('Displayed job title')
+                description = row.get('job_description') or row.get('Job Description')
+                
+                job_categories = categorize_job_role(str(title) if pd.notna(title) else "", str(description) if pd.notna(description) else "")
+                
+                if job_categories.get('is_designer', False):
+                    designer_jobs.append(idx)
+                if job_categories.get('is_video_professional', False):
+                    video_jobs.append(idx)
+                if job_categories.get('is_photo_professional', False):
+                    photo_jobs.append(idx)
+            
+            # Create role summary chunks
+            if designer_jobs:
+                designer_text = f"Designer roles identified: {len(designer_jobs)} positions including graphic designers, UI/UX designers, and creative professionals"
+                chunks.append({
+                    'text': designer_text,
+                    'type': 'role_analysis',
+                    'role_type': 'designer',
+                    'metadata': {'job_count': len(designer_jobs), 'job_indices': designer_jobs}
+                })
+            
+            if video_jobs:
+                video_text = f"Video professional roles identified: {len(video_jobs)} positions including video editors, motion graphics artists, and videographers"
+                chunks.append({
+                    'text': video_text,
+                    'type': 'role_analysis',
+                    'role_type': 'video_professional',
+                    'metadata': {'job_count': len(video_jobs), 'job_indices': video_jobs}
+                })
+            
+            if photo_jobs:
+                photo_text = f"Photo professional roles identified: {len(photo_jobs)} positions including photographers, photo editors, and retouchers"
+                chunks.append({
+                    'text': photo_text,
+                    'type': 'role_analysis',
+                    'role_type': 'photo_professional',
+                    'metadata': {'job_count': len(photo_jobs), 'job_indices': photo_jobs}
+                })
+            
+            # 4. Create AI tools analysis chunk
+            ai_tool_jobs = []
+            for idx, row in processed_df.iterrows():
+                description = row.get('job_description') or row.get('Job Description')
+                if pd.notna(description):
+                    creative_analysis = detect_creative_software_and_skills(str(description))
+                    if creative_analysis.get('ai_tools'):
+                        ai_tool_jobs.append(idx)
+            
+            if ai_tool_jobs:
+                ai_text = f"Jobs requiring AI tools: {len(ai_tool_jobs)} positions mention AI tools like ChatGPT, Midjourney, DALL-E, or other creative AI platforms"
+                chunks.append({
+                    'text': ai_text,
+                    'type': 'ai_analysis',
+                    'metadata': {'job_count': len(ai_tool_jobs), 'job_indices': ai_tool_jobs}
+                })
+            
+            # 5. Create dataset overview
             total_jobs = len(processed_df)
             unique_companies = processed_df['company'].nunique() if 'company' in processed_df.columns else 0
-            unique_locations = processed_df['city_job_location'].nunique() if 'city_job_location' in processed_df.columns else 0
             
-            overview_text = f"Job dataset contains {total_jobs} total job listings"
+            overview_text = f"Creative professionals job dataset contains {total_jobs} total job listings"
             if unique_companies > 0:
                 overview_text += f" from {unique_companies} different companies"
-            if unique_locations > 0:
-                overview_text += f" across {unique_locations} different cities"
             
             chunks.append({
                 'text': overview_text,
@@ -498,11 +814,14 @@ results = []
                 'metadata': {
                     'total_jobs': total_jobs,
                     'unique_companies': unique_companies,
-                    'unique_locations': unique_locations
+                    'designer_jobs': len(designer_jobs),
+                    'video_jobs': len(video_jobs),
+                    'photo_jobs': len(photo_jobs),
+                    'ai_tool_jobs': len(ai_tool_jobs)
                 }
             })
             
-            st.info(f"Created {len(chunks)} document chunks for job data indexing")
+            st.info(f"Created {len(chunks)} enhanced document chunks for creative job analysis")
             return chunks
             
         except Exception as e:
@@ -516,12 +835,13 @@ results = []
             'index_built': self._index_built,
             'document_count': len(self.documents),
             'dimension': self.dimension,
-            'initialization_error': self._initialization_error
+            'initialization_error': self._initialization_error,
+            'backend': self.backend
         }
 
 
-class JobDataTokenizer:
-    """Specialized tokenizer for job listing data"""
+class CreativeJobTokenizer:
+    """Enhanced tokenizer specialized for creative professional job data"""
     
     def __init__(self):
         if not NLTK_AVAILABLE:
@@ -539,7 +859,7 @@ class JobDataTokenizer:
             self.stop_words = set()
 
     def tokenize_text(self, text: str, method='lemmatize') -> List[str]:
-        """Enhanced text tokenization for job descriptions"""
+        """Enhanced text tokenization for creative job descriptions"""
         if pd.isna(text) or not isinstance(text, str):
             return []
 
@@ -573,8 +893,47 @@ class JobDataTokenizer:
             text = re.sub(r'[^\w\s]', ' ', text.lower())
             return [token for token in text.split() if len(token) > 2]
 
+    def tokenize_creative_job_description(self, description: str) -> Dict[str, List[str]]:
+        """Enhanced tokenization specifically for creative job descriptions"""
+        if pd.isna(description) or not isinstance(description, str):
+            return {
+                'basic_tokens': [],
+                'adobe_apps': [],
+                'non_adobe_apps': [],
+                'ai_tools': [],
+                'technical_skills': [],
+                'soft_skills': [],
+                'creative_tasks': [],
+                'job_categories': []
+            }
+
+        # Get creative analysis
+        creative_analysis = detect_creative_software_and_skills(description)
+        
+        # Basic tokenization
+        basic_tokens = self.tokenize_text(description, method='lemmatize')
+        
+        # Job role categorization
+        job_categories = categorize_job_role("", description)
+        category_tokens = []
+        
+        for category, is_category in job_categories.items():
+            if is_category:
+                category_tokens.append(category.replace('is_', ''))
+        
+        return {
+            'basic_tokens': basic_tokens,
+            'adobe_apps': creative_analysis.get('adobe_apps', []),
+            'non_adobe_apps': creative_analysis.get('non_adobe_apps', []),
+            'ai_tools': creative_analysis.get('ai_tools', []),
+            'technical_skills': creative_analysis.get('technical_skills', []),
+            'soft_skills': creative_analysis.get('soft_skills', []),
+            'creative_tasks': creative_analysis.get('creative_tasks', []),
+            'job_categories': category_tokens
+        }
+
     def tokenize_job_title(self, title: str) -> List[str]:
-        """Specialized tokenization for job titles"""
+        """Enhanced tokenization for creative job titles"""
         if pd.isna(title) or not isinstance(title, str):
             return ['unknown_title']
 
@@ -588,6 +947,12 @@ class JobDataTokenizer:
             # Add title-specific context
             tokens.append('job_title')
             
+            # Check for creative role categories
+            job_categories = categorize_job_role(title, "")
+            for category, is_category in job_categories.items():
+                if is_category:
+                    tokens.append(category.replace('is_', '') + '_role')
+            
             # Add seniority level indicators
             title_lower = title.lower()
             if any(word in title_lower for word in ['senior', 'sr', 'lead', 'principal']):
@@ -597,15 +962,13 @@ class JobDataTokenizer:
             elif any(word in title_lower for word in ['manager', 'director', 'head', 'chief']):
                 tokens.extend(['management', 'leadership'])
             
-            # Add domain indicators
-            if any(word in title_lower for word in ['engineer', 'developer', 'programmer']):
-                tokens.extend(['technical', 'engineering'])
-            elif any(word in title_lower for word in ['analyst', 'data', 'research']):
-                tokens.extend(['analytical', 'data_role'])
-            elif any(word in title_lower for word in ['sales', 'marketing', 'business']):
-                tokens.extend(['business', 'commercial'])
-            elif any(word in title_lower for word in ['design', 'creative', 'ui', 'ux']):
-                tokens.extend(['creative', 'design'])
+            # Add domain indicators for creative roles
+            if any(word in title_lower for word in ['designer', 'design', 'creative']):
+                tokens.extend(['creative_role', 'design_professional'])
+            elif any(word in title_lower for word in ['video', 'motion', 'film', 'animation']):
+                tokens.extend(['video_professional', 'motion_specialist'])
+            elif any(word in title_lower for word in ['photo', 'photographer', 'retoucher']):
+                tokens.extend(['photo_professional', 'imaging_specialist'])
                 
         except Exception as e:
             logger.error(f"Error tokenizing job title {title}: {str(e)}")
@@ -614,7 +977,7 @@ class JobDataTokenizer:
         return tokens
 
     def tokenize_company(self, company: str) -> List[str]:
-        """Tokenize company names with context"""
+        """Tokenize company names with creative industry context"""
         if pd.isna(company) or not isinstance(company, str):
             return ['unknown_company']
 
@@ -632,146 +995,28 @@ class JobDataTokenizer:
             clean_company = re.sub(r'[^\w\s]', '_', company.lower())
             tokens.append(clean_company)
             
+            # Industry indicators for creative companies
+            company_lower = company.lower()
+            if any(word in company_lower for word in ['design', 'creative', 'agency', 'studio']):
+                tokens.extend(['creative_company', 'design_agency'])
+            elif any(word in company_lower for word in ['media', 'production', 'film', 'video']):
+                tokens.extend(['media_company', 'production_house'])
+            elif any(word in company_lower for word in ['advertising', 'marketing', 'brand']):
+                tokens.extend(['advertising_agency', 'marketing_company'])
+            
         except Exception as e:
             logger.error(f"Error tokenizing company {company}: {str(e)}")
             tokens = ['company_name', 'unknown']
 
         return tokens
 
-    def tokenize_location(self, location: str, location_type: str = 'city') -> List[str]:
-        """Tokenize location data with geographic context"""
-        if pd.isna(location) or not isinstance(location, str):
-            return [f'unknown_{location_type}']
 
-        tokens = []
-        
-        try:
-            # Basic tokenization
-            basic_tokens = self.tokenize_text(location, method='lemmatize')
-            tokens.extend(basic_tokens)
-            
-            # Add location context
-            tokens.append(f'{location_type}_location')
-            
-            # Add cleaned location name
-            clean_location = re.sub(r'[^\w\s]', '_', location.lower())
-            tokens.append(clean_location)
-            
-            # Add geographic context based on common patterns
-            location_lower = location.lower()
-            if location_type == 'city':
-                # Add major city indicators
-                major_cities = ['new york', 'los angeles', 'chicago', 'houston', 'phoenix', 
-                              'philadelphia', 'san antonio', 'san diego', 'dallas', 'san jose',
-                              'austin', 'jacksonville', 'fort worth', 'columbus', 'charlotte']
-                if any(city in location_lower for city in major_cities):
-                    tokens.append('major_city')
-                    
-        except Exception as e:
-            logger.error(f"Error tokenizing location {location}: {str(e)}")
-            tokens = [f'{location_type}_location', 'unknown']
-
-        return tokens
-
-    def tokenize_salary(self, salary: str) -> List[str]:
-        """Tokenize salary information with range context"""
-        if pd.isna(salary) or not isinstance(salary, str):
-            return ['salary_unknown']
-
-        tokens = []
-        
-        try:
-            # Add basic salary context
-            tokens.append('salary_info')
-            
-            # Extract numeric values
-            numbers = re.findall(r'\d+(?:,\d{3})*(?:\.\d+)?', str(salary))
-            
-            if numbers:
-                # Convert to numeric and categorize
-                try:
-                    max_salary = max([float(num.replace(',', '')) for num in numbers])
-                    
-                    if max_salary < 40000:
-                        tokens.extend(['low_salary', 'entry_pay'])
-                    elif max_salary < 80000:
-                        tokens.extend(['medium_salary', 'mid_range_pay'])
-                    elif max_salary < 120000:
-                        tokens.extend(['high_salary', 'senior_pay'])
-                    else:
-                        tokens.extend(['very_high_salary', 'executive_pay'])
-                        
-                except ValueError:
-                    tokens.append('salary_numeric_error')
-            
-            # Check for salary type indicators
-            salary_lower = salary.lower()
-            if 'hour' in salary_lower:
-                tokens.append('hourly_rate')
-            elif any(word in salary_lower for word in ['year', 'annual', 'yearly']):
-                tokens.append('annual_salary')
-            elif any(word in salary_lower for word in ['month', 'monthly']):
-                tokens.append('monthly_salary')
-                
-        except Exception as e:
-            logger.error(f"Error tokenizing salary {salary}: {str(e)}")
-            tokens = ['salary_info', 'error']
-
-        return tokens
-
-
-
-APP_KEYWORDS = {
-    "photoshop":"Adobe Photoshop", "lightroom":"Adobe Lightroom", "illustrator":"Adobe Illustrator", "indesign":"Adobe InDesign",
-    "premiere":"Adobe Premiere Pro", "after effects":"Adobe After Effects", "final cut pro":"Final Cut Pro", "davinci":"DaVinci Resolve",
-    "gimp":"GIMP", "figma":"Figma", "canva":"Canva", "sketch":"Sketch", "midjourney":"Midjourney", "chatgpt":"ChatGPT", "dall":"DALL·E"
-}
-
-def detect_apps_and_tasks(text: str):
-    import difflib
-    t = text.lower() if text else ""
-    tokens = re.findall(r"\w[\w\-\.\+]*", t)
-    found_apps = set()
-
-    # Direct matches
-    for k, v in APP_KEYWORDS.items():
-        if re.search(r"\b" + re.escape(k) + r"\b", t):
-            found_apps.add(v)
-
-    # Synonym/abbrev map
-    SYNONYMS = {
-        "ps": "Adobe Photoshop", "psd": "Adobe Photoshop",
-        "ae": "Adobe After Effects", "pr": "Adobe Premiere Pro", "fcp": "Final Cut Pro",
-        "fcpx": "Final Cut Pro", "ppro": "Adobe Premiere Pro", "lr": "Adobe Lightroom", "fig": "Figma"
-    }
-    for token in tokens:
-        if token in SYNONYMS:
-            found_apps.add(SYNONYMS[token])
-
-    # Fuzzy matching
-    app_keys = list(APP_KEYWORDS.keys())
-    for token in tokens:
-        if len(token) <= 2:
-            continue
-        matches = difflib.get_close_matches(token, app_keys, n=2, cutoff=0.85)
-        for m in matches:
-            found_apps.add(APP_KEYWORDS.get(m, m.title()))
-
-    # tasks simple detection
-    found_tasks = []
-    for phrase in ['video editing', 'photo editing', 'logo', 'branding', 'ux', 'ui', 'motion graphics']:
-        if re.search(r"\b" + re.escape(phrase) + r"\b", t):
-            found_tasks.append(phrase)
-
-    found_ais = [a for a in ['chatgpt','gpt-4','midjourney','dall','runway'] if re.search(r"\b" + re.escape(a) + r"\b", t)]
-    return sorted(list(found_apps)), sorted(found_tasks), sorted(found_ais)
-
-class ConversationManager:
-    """Enhanced conversation manager for job data queries"""
+class CreativeJobConversationManager:
+    """Enhanced conversation manager for creative job queries"""
     
     def __init__(self):
         self.conversation_history = []
-        self.max_history_length = 15  # Increased for job data context
+        self.max_history_length = 20  # Increased for complex creative queries
         
     def add_exchange(self, question: str, answer: str, context_used: List[str] = None):
         """Add a question-answer exchange to conversation history"""
@@ -780,7 +1025,7 @@ class ConversationManager:
             'question': question,
             'answer': answer,
             'context_used': context_used or [],
-            'query_type': self._classify_query(question)
+            'query_type': self._classify_creative_query(question)
         }
         
         self.conversation_history.append(exchange)
@@ -789,46 +1034,63 @@ class ConversationManager:
         if len(self.conversation_history) > self.max_history_length:
             self.conversation_history = self.conversation_history[-self.max_history_length:]
     
-    def _classify_query(self, question: str) -> str:
-        """Classify the type of job-related query"""
+    def _classify_creative_query(self, question: str) -> str:
+        """Classify the type of creative job-related query"""
         question_lower = question.lower()
         
-        if any(word in question_lower for word in ['company', 'employer', 'firm']):
-            return 'company_query'
-        elif any(word in question_lower for word in ['location', 'city', 'state', 'where']):
-            return 'location_query'
-        elif any(word in question_lower for word in ['salary', 'pay', 'compensation', 'wage']):
-            return 'salary_query'
-        elif any(word in question_lower for word in ['title', 'position', 'role', 'job']):
-            return 'job_title_query'
-        elif any(word in question_lower for word in ['skill', 'requirement', 'qualification']):
+        # Software-specific queries
+        if any(word in question_lower for word in ['adobe', 'photoshop', 'illustrator', 'premiere', 'after effects']):
+            return 'adobe_software_query'
+        elif any(word in question_lower for word in ['non-adobe', 'figma', 'sketch', 'final cut', 'davinci']):
+            return 'non_adobe_software_query'
+        elif any(word in question_lower for word in ['ai tool', 'chatgpt', 'midjourney', 'dall']):
+            return 'ai_tools_query'
+        
+        # Role-specific queries
+        elif any(word in question_lower for word in ['designer', 'design', 'graphic', 'ui', 'ux']):
+            return 'designer_query'
+        elif any(word in question_lower for word in ['video', 'motion', 'film', 'animation']):
+            return 'video_professional_query'
+        elif any(word in question_lower for word in ['photo', 'photographer', 'retoucher']):
+            return 'photo_professional_query'
+        
+        # Analysis-specific queries
+        elif any(word in question_lower for word in ['how many', 'count', 'number']):
+            return 'count_query'
+        elif any(word in question_lower for word in ['top', 'most', 'popular', 'common']):
+            return 'ranking_query'
+        elif any(word in question_lower for word in ['skill', 'requirement', 'soft skill']):
             return 'skills_query'
+        elif any(word in question_lower for word in ['industry', 'company', 'hiring']):
+            return 'industry_query'
         elif any(word in question_lower for word in ['summary', 'overview', 'analyze', 'insight']):
             return 'analysis_query'
         else:
-            return 'general_query'
+            return 'general_creative_query'
     
     def get_context_for_query(self, current_question: str) -> str:
-        """Get relevant conversation context for job queries"""
+        """Get relevant conversation context for creative job queries"""
         if not self.conversation_history:
             return ""
         
-        current_type = self._classify_query(current_question)
+        current_type = self._classify_creative_query(current_question)
         
         # Get recent relevant exchanges
         relevant_history = []
-        for exchange in reversed(self.conversation_history[-5:]):
-            if exchange['query_type'] == current_type or exchange['query_type'] == 'analysis_query':
+        for exchange in reversed(self.conversation_history[-7:]):
+            if (exchange['query_type'] == current_type or 
+                exchange['query_type'] == 'analysis_query' or
+                'software' in exchange['query_type'] and 'software' in current_type):
                 relevant_history.append(exchange)
         
         if not relevant_history:
             # Fallback to recent history
             relevant_history = self.conversation_history[-3:]
         
-        context_parts = ["Previous relevant conversation:"]
+        context_parts = ["Previous relevant creative job analysis:"]
         for i, exchange in enumerate(relevant_history[:3], 1):
-            context_parts.append(f"Q{i}: {exchange['question'][:100]}...")
-            context_parts.append(f"A{i}: {exchange['answer'][:150]}...")
+            context_parts.append(f"Q{i}: {exchange['question'][:120]}...")
+            context_parts.append(f"A{i}: {exchange['answer'][:180]}...")
         
         return "\n".join(context_parts)
     
@@ -837,15 +1099,177 @@ class ConversationManager:
         self.conversation_history = []
 
 
-class OpenAIQueryProcessor:
-    """Enhanced OpenAI processor optimized for job data analysis"""
+def analyze_creative_job_dataset(df: pd.DataFrame) -> Dict:
+    """Comprehensive analysis of creative job dataset for answering specific questions"""
+    analysis_results = {
+        'total_jobs': len(df),
+        'adobe_analysis': {},
+        'role_analysis': {},
+        'software_analysis': {},
+        'ai_tools_analysis': {},
+        'skills_analysis': {},
+        'industry_analysis': {}
+    }
+    
+    try:
+        # Initialize counters
+        adobe_only_jobs = []
+        non_adobe_only_jobs = []
+        both_apps_jobs = []
+        ai_tool_jobs = []
+        
+        # Role counters
+        designer_jobs = []
+        video_jobs = []
+        photo_jobs = []
+        
+        # Skills counters
+        all_technical_skills = []
+        all_soft_skills = []
+        all_creative_tasks = []
+        
+        # Software counters
+        all_adobe_apps = []
+        all_non_adobe_apps = []
+        all_ai_tools = []
+        
+        # Process each job
+        for idx, row in df.iterrows():
+            # Get job description
+            description = row.get('job_description') or row.get('Job Description', '')
+            title = row.get('summary_job_title') or row.get('displayed_job_title') or row.get('Summary job title') or row.get('Displayed job title', '')
+            company = row.get('company', '')
+            
+            if pd.notna(description):
+                # Creative analysis
+                creative_analysis = detect_creative_software_and_skills(str(description))
+                
+                # Software analysis
+                has_adobe = len(creative_analysis.get('adobe_apps', [])) > 0
+                has_non_adobe = len(creative_analysis.get('non_adobe_apps', [])) > 0
+                has_ai_tools = len(creative_analysis.get('ai_tools', [])) > 0
+                
+                if has_adobe and not has_non_adobe:
+                    adobe_only_jobs.append({
+                        'index': idx,
+                        'title': title,
+                        'company': company,
+                        'adobe_apps': creative_analysis.get('adobe_apps', [])
+                    })
+                elif has_non_adobe and not has_adobe:
+                    non_adobe_only_jobs.append({
+                        'index': idx,
+                        'title': title,
+                        'company': company,
+                        'non_adobe_apps': creative_analysis.get('non_adobe_apps', [])
+                    })
+                elif has_adobe and has_non_adobe:
+                    both_apps_jobs.append({
+                        'index': idx,
+                        'title': title,
+                        'company': company,
+                        'adobe_apps': creative_analysis.get('adobe_apps', []),
+                        'non_adobe_apps': creative_analysis.get('non_adobe_apps', [])
+                    })
+                
+                if has_ai_tools:
+                    ai_tool_jobs.append({
+                        'index': idx,
+                        'title': title,
+                        'company': company,
+                        'ai_tools': creative_analysis.get('ai_tools', [])
+                    })
+                
+                # Collect all software mentions
+                all_adobe_apps.extend(creative_analysis.get('adobe_apps', []))
+                all_non_adobe_apps.extend(creative_analysis.get('non_adobe_apps', []))
+                all_ai_tools.extend(creative_analysis.get('ai_tools', []))
+                
+                # Collect skills
+                all_technical_skills.extend(creative_analysis.get('technical_skills', []))
+                all_soft_skills.extend(creative_analysis.get('soft_skills', []))
+                all_creative_tasks.extend(creative_analysis.get('creative_tasks', []))
+            
+            # Role categorization
+            job_categories = categorize_job_role(str(title), str(description))
+            
+            if job_categories.get('is_designer', False):
+                designer_jobs.append({
+                    'index': idx,
+                    'title': title,
+                    'company': company,
+                    'description_snippet': str(description)[:200] if pd.notna(description) else ''
+                })
+            
+            if job_categories.get('is_video_professional', False):
+                video_jobs.append({
+                    'index': idx,
+                    'title': title,
+                    'company': company,
+                    'description_snippet': str(description)[:200] if pd.notna(description) else ''
+                })
+            
+            if job_categories.get('is_photo_professional', False):
+                photo_jobs.append({
+                    'index': idx,
+                    'title': title,
+                    'company': company,
+                    'description_snippet': str(description)[:200] if pd.notna(description) else ''
+                })
+        
+        # Compile results
+        analysis_results['adobe_analysis'] = {
+            'adobe_only_count': len(adobe_only_jobs),
+            'non_adobe_only_count': len(non_adobe_only_jobs),
+            'both_apps_count': len(both_apps_jobs),
+            'adobe_only_jobs': adobe_only_jobs,
+            'non_adobe_only_jobs': non_adobe_only_jobs,
+            'both_apps_jobs': both_apps_jobs
+        }
+        
+        analysis_results['role_analysis'] = {
+            'designer_count': len(designer_jobs),
+            'video_professional_count': len(video_jobs),
+            'photo_professional_count': len(photo_jobs),
+            'designer_jobs': designer_jobs,
+            'video_jobs': video_jobs,
+            'photo_jobs': photo_jobs
+        }
+        
+        analysis_results['software_analysis'] = {
+            'adobe_apps_frequency': Counter(all_adobe_apps),
+            'non_adobe_apps_frequency': Counter(all_non_adobe_apps),
+            'photoshop_count': Counter(all_adobe_apps).get('Photoshop', 0) + Counter(all_adobe_apps).get('Adobe Photoshop', 0)
+        }
+        
+        analysis_results['ai_tools_analysis'] = {
+            'ai_tools_count': len(ai_tool_jobs),
+            'ai_tools_jobs': ai_tool_jobs,
+            'ai_tools_frequency': Counter(all_ai_tools)
+        }
+        
+        analysis_results['skills_analysis'] = {
+            'technical_skills_frequency': Counter(all_technical_skills),
+            'soft_skills_frequency': Counter(all_soft_skills),
+            'creative_tasks_frequency': Counter(all_creative_tasks)
+        }
+        
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Error in creative job analysis: {str(e)}")
+        return analysis_results
+
+
+class CreativeJobOpenAIProcessor:
+    """Enhanced OpenAI processor optimized for creative job analysis"""
     
     def __init__(self, api_key: str):
         self._api_key = api_key
         self.client = None
         self.tokenizer = None
         self.max_context_length = 16385
-        self.max_completion_tokens = 2000  # Increased for job analysis
+        self.max_completion_tokens = 3000  # Increased for detailed creative analysis
         self.max_input_tokens = self.max_context_length - self.max_completion_tokens - 100
         self._token_cache = {}
         self._initialization_error = None
@@ -931,37 +1355,44 @@ class OpenAIQueryProcessor:
 
         return truncated.strip() + ("..." if truncated else "")
 
-    def generate_job_system_prompt(self, data_summary: Dict) -> str:
-        """Generate system prompt optimized for job data analysis"""
+    def generate_creative_job_system_prompt(self, data_summary: Dict) -> str:
+        """Generate system prompt optimized for creative job analysis"""
         try:
             dataset_info = data_summary.get('dataset_info', {})
-            prompt = f"""You are an expert job market analyst and career advisor with access to a comprehensive job dataset.
+            prompt = f"""You are an expert creative industry analyst specializing in job market analysis for creative professionals (CPros), with deep knowledge of:
 
-Dataset Overview: {dataset_info.get('total_rows', 0):,} job listings across {dataset_info.get('total_columns', 0)} data fields
-Key Fields: Company, Job Title, Location, Salary, Job Description, Date
+Dataset Overview: {dataset_info.get('total_rows', 0):,} creative job listings across {dataset_info.get('total_columns', 0)} data fields
+Key Focus Areas: Adobe vs Non-Adobe software requirements, AI tools adoption, creative roles analysis
 
-Your expertise includes:
-- Job market analysis and trends
-- Salary benchmarking and compensation analysis
-- Geographic job distribution insights
-- Company hiring patterns
-- Career guidance and job search optimization
-- Skills and qualifications assessment
+Your specialized expertise includes:
+- Creative software analysis (Adobe Creative Suite vs alternatives like Figma, Sketch, Final Cut Pro, DaVinci Resolve)
+- AI tools in creative workflows (ChatGPT, Midjourney, DALL-E, Runway ML, etc.)
+- Creative role categorization (designers, video professionals, photo professionals)
+- Industry hiring patterns and skill requirements
+- Creative software market trends and professional development
 
-You have access to a RAG (Retrieval-Augmented Generation) system that provides relevant job data context for each query. Use this context to provide:
+You have access to a RAG system providing relevant creative job data context. Use this context to provide:
 
-1. **Data-driven insights**: Base responses on actual job listings in the dataset
-2. **Specific examples**: Reference actual companies, positions, and locations when relevant
-3. **Actionable advice**: Provide practical guidance for job seekers and career development
-4. **Market context**: Explain trends and patterns in the job market
-5. **Comparative analysis**: Help users understand relative opportunities and competition
+1. **Quantitative Analysis**: Provide exact counts, percentages, and statistical breakdowns
+2. **Software Trends**: Compare Adobe vs non-Adobe usage patterns
+3. **Role-Specific Insights**: Analyze requirements by creative discipline
+4. **Industry Intelligence**: Identify hiring companies and emerging trends
+5. **Professional Guidance**: Offer career advice based on market data
 
-Instructions:
-- Always use retrieved context to support your analysis
-- Provide specific data points and examples when available
-- Maintain professional, helpful tone appropriate for career guidance
-- Focus on actionable insights that help users make informed decisions
-- Acknowledge limitations when dataset doesn't contain relevant information"""
+Instructions for Creative Job Analysis:
+- Always cite specific job counts and percentages from the dataset
+- Compare Adobe Creative Suite vs alternative software adoption
+- Identify cross-disciplinary skill requirements
+- Highlight AI tool integration in creative workflows
+- Provide actionable insights for creative professionals
+- Present data in clear, professional tables when appropriate
+- Focus on practical implications for career development
+
+When answering questions about creative roles and software requirements, structure responses with:
+- Executive Summary (key findings)
+- Detailed Analysis (with specific counts)
+- Software Breakdown (Adobe vs Non-Adobe vs AI tools)
+- Professional Recommendations"""
 
             # Ensure system prompt fits within limits
             max_system_tokens = int(self.max_input_tokens * 0.4)
@@ -969,45 +1400,73 @@ Instructions:
             
         except Exception as e:
             logger.error(f"Error generating system prompt: {str(e)}")
-            return "You are a job market analyst. Help analyze the job dataset and provide career insights."
+            return "You are a creative industry job market analyst. Help analyze creative professional job datasets and provide insights."
 
-    def prepare_job_rag_context(self, retrieved_docs: List[Dict], conversation_context: str = "") -> str:
-        """Prepare RAG context optimized for job data"""
+    def prepare_creative_rag_context(self, retrieved_docs: List[Dict], conversation_context: str = "", dataset_analysis: Dict = None) -> str:
+        """Prepare RAG context optimized for creative job analysis"""
         context_parts = []
         
         try:
             if conversation_context:
                 context_parts.append(f"Previous Conversation:\n{conversation_context}")
             
+            # Add dataset analysis summary if available
+            if dataset_analysis:
+                context_parts.append("Dataset Analysis Summary:")
+                
+                # Role counts
+                role_analysis = dataset_analysis.get('role_analysis', {})
+                if role_analysis:
+                    context_parts.append(f"Designer roles: {role_analysis.get('designer_count', 0)}")
+                    context_parts.append(f"Video professionals: {role_analysis.get('video_professional_count', 0)}")
+                    context_parts.append(f"Photo professionals: {role_analysis.get('photo_professional_count', 0)}")
+                
+                # Software analysis
+                adobe_analysis = dataset_analysis.get('adobe_analysis', {})
+                if adobe_analysis:
+                    context_parts.append(f"Adobe-only jobs: {adobe_analysis.get('adobe_only_count', 0)}")
+                    context_parts.append(f"Non-Adobe only jobs: {adobe_analysis.get('non_adobe_only_count', 0)}")
+                    context_parts.append(f"Both Adobe and non-Adobe: {adobe_analysis.get('both_apps_count', 0)}")
+                
+                # AI tools
+                ai_analysis = dataset_analysis.get('ai_tools_analysis', {})
+                if ai_analysis:
+                    context_parts.append(f"Jobs requiring AI tools: {ai_analysis.get('ai_tools_count', 0)}")
+            
             if retrieved_docs:
-                context_parts.append("Relevant Job Data:")
+                context_parts.append("Relevant Creative Job Data:")
                 
                 # Group documents by type for better organization
                 job_listings = [doc for doc in retrieved_docs if doc.get('metadata', {}).get('company')]
-                company_summaries = [doc for doc in retrieved_docs if 'company_summary' in doc.get('text', '')]
-                location_summaries = [doc for doc in retrieved_docs if 'location' in doc.get('text', '')]
-                other_docs = [doc for doc in retrieved_docs if doc not in job_listings + company_summaries + location_summaries]
+                analysis_docs = [doc for doc in retrieved_docs if 'analysis' in doc.get('text', '')]
+                other_docs = [doc for doc in retrieved_docs if doc not in job_listings + analysis_docs]
                 
-                # Add job listings first (most important)
+                # Add specific job listings
                 if job_listings:
-                    context_parts.append("\nSpecific Job Listings:")
-                    for i, doc in enumerate(job_listings[:3], 1):
+                    context_parts.append("\nSpecific Creative Job Listings:")
+                    for i, doc in enumerate(job_listings[:4], 1):
                         score = doc.get('score', 0)
                         metadata = doc.get('metadata', {})
-                        context_parts.append(f"{i}. [Score: {score:.3f}] {doc.get('text', '')}")
-                        if metadata.get('company'):
-                            context_parts.append(f"   Company: {metadata['company']}, Location: {metadata.get('location', 'N/A')}")
+                        context_parts.append(f"{i}. [Relevance: {score:.3f}] {doc.get('text', '')}")
+                        
+                        # Add creative-specific metadata
+                        if metadata.get('adobe_apps'):
+                            context_parts.append(f"   Adobe Apps: {', '.join(metadata['adobe_apps'])}")
+                        if metadata.get('non_adobe_apps'):
+                            context_parts.append(f"   Non-Adobe Apps: {', '.join(metadata['non_adobe_apps'])}")
+                        if metadata.get('ai_tools'):
+                            context_parts.append(f"   AI Tools: {', '.join(metadata['ai_tools'])}")
+                        if metadata.get('is_designer'):
+                            context_parts.append("   Role Type: Designer")
+                        elif metadata.get('is_video_professional'):
+                            context_parts.append("   Role Type: Video Professional")
+                        elif metadata.get('is_photo_professional'):
+                            context_parts.append("   Role Type: Photo Professional")
                 
-                # Add company summaries
-                if company_summaries:
-                    context_parts.append("\nCompany Information:")
-                    for doc in company_summaries[:2]:
-                        context_parts.append(f"• {doc.get('text', '')}")
-                
-                # Add location summaries
-                if location_summaries:
-                    context_parts.append("\nLocation Insights:")
-                    for doc in location_summaries[:2]:
+                # Add analysis documents
+                if analysis_docs:
+                    context_parts.append("\nDataset Analysis:")
+                    for doc in analysis_docs[:3]:
                         context_parts.append(f"• {doc.get('text', '')}")
                 
                 # Add other relevant information
@@ -1026,9 +1485,9 @@ Instructions:
             logger.error(f"Error preparing RAG context: {str(e)}")
             return ""
 
-    def query_job_data_with_rag(self, question: str, data_summary: Dict, vector_store: RAGVectorStore, 
-                               conversation_manager: ConversationManager) -> str:
-        """Process job-related queries with RAG enhancement"""
+    def query_creative_data_with_rag(self, question: str, data_summary: Dict, vector_store: RAGVectorStore, 
+                                   conversation_manager: CreativeJobConversationManager, dataset_analysis: Dict = None) -> str:
+        """Process creative job queries with enhanced RAG"""
         
         if not self.is_available():
             return f"OpenAI client not available: {self._initialization_error}"
@@ -1037,24 +1496,24 @@ Instructions:
             # Get conversation context
             conversation_context = conversation_manager.get_context_for_query(question)
             
-            # Retrieve relevant job documents
+            # Retrieve relevant creative job documents
             retrieved_docs = []
             try:
-                retrieved_docs = vector_store.search(question, k=8)  # More docs for job analysis
-                logger.info(f"Retrieved {len(retrieved_docs)} job documents for query")
+                retrieved_docs = vector_store.search(question, k=10)  # More docs for creative analysis
+                logger.info(f"Retrieved {len(retrieved_docs)} creative job documents for query")
             except Exception as search_error:
                 logger.warning(f"Vector search failed: {search_error}")
             
-            # Generate job-specific system prompt
-            system_prompt = self.generate_job_system_prompt(data_summary)
+            # Generate creative job system prompt
+            system_prompt = self.generate_creative_job_system_prompt(data_summary)
             
-            # Prepare job-specific RAG context
-            rag_context = self.prepare_job_rag_context(retrieved_docs, conversation_context)
+            # Prepare enhanced RAG context with dataset analysis
+            rag_context = self.prepare_creative_rag_context(retrieved_docs, conversation_context, dataset_analysis)
             
             # Create user message
-            user_message = f"Question: {question}"
+            user_message = f"Creative Industry Query: {question}"
             if rag_context:
-                user_message += f"\n\nRelevant Job Data Context:\n{rag_context}"
+                user_message += f"\n\nRelevant Creative Job Data:\n{rag_context}"
             
             # Token management
             system_tokens = self.count_tokens(system_prompt)
@@ -1066,14 +1525,14 @@ Instructions:
                 excess_tokens = total_input_tokens - self.max_input_tokens
                 if rag_context:
                     current_context_tokens = self.count_tokens(rag_context)
-                    reduced_context_tokens = max(300, current_context_tokens - excess_tokens)
+                    reduced_context_tokens = max(500, current_context_tokens - excess_tokens)
                     rag_context = self.truncate_text(rag_context, reduced_context_tokens)
-                    user_message = f"Question: {question}\n\nRelevant Job Data Context:\n{rag_context}"
+                    user_message = f"Creative Industry Query: {question}\n\nRelevant Creative Job Data:\n{rag_context}"
             
             # Calculate available completion tokens
             final_input_tokens = self.count_tokens(system_prompt) + self.count_tokens(user_message)
             available_tokens = self.max_context_length - final_input_tokens - 100
-            completion_tokens = min(self.max_completion_tokens, max(500, available_tokens))
+            completion_tokens = min(self.max_completion_tokens, max(1000, available_tokens))
             
             # Make API call
             try:
@@ -1084,17 +1543,17 @@ Instructions:
                         {"role": "user", "content": user_message}
                     ],
                     max_tokens=completion_tokens,
-                    temperature=0.7,
-                    timeout=30
+                    temperature=0.3,  # Lower temperature for more consistent analysis
+                    timeout=45
                 )
                 
                 answer = response.choices[0].message.content
                 
                 # Store in conversation history
-                context_used = [doc['text'][:100] + "..." for doc in retrieved_docs[:3]]
+                context_used = [doc['text'][:150] + "..." for doc in retrieved_docs[:3]]
                 conversation_manager.add_exchange(question, answer, context_used)
                 
-                logger.info(f"Successfully processed job query: {question[:50]}...")
+                logger.info(f"Successfully processed creative job query: {question[:50]}...")
                 return answer
                 
             except openai.APIError as api_error:
@@ -1114,20 +1573,22 @@ Instructions:
             
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Error in job RAG query processing: {error_msg}")
+            logger.error(f"Error in creative job RAG query processing: {error_msg}")
             
             if "maximum context length" in error_msg.lower():
                 return """The query is too complex for a single analysis. Please try:
-1. Ask more specific questions about particular companies or locations
-2. Focus on specific aspects like salary ranges or job titles
+1. Ask more specific questions about particular software or creative roles
+2. Focus on specific aspects like Adobe vs non-Adobe requirements
 3. Break down your analysis into smaller, focused questions
 
-The job dataset has been successfully processed with RAG capabilities - you can explore it using more targeted queries."""
+The creative job dataset has been successfully processed with enhanced RAG capabilities for creative professional analysis."""
             else:
-                return f"Error processing query: {error_msg}. Please try a simpler question or check your OpenAI API key."
+                return f"Error processing creative job query: {error_msg}. Please try a simpler question or check your OpenAI API key."
 
-class JobCSVProcessor:
-    """Enhanced CSV processor specifically optimized for job listing data"""
+
+
+class CreativeJobCSVProcessor:
+    """Enhanced CSV processor specifically optimized for creative job listing data"""
     
     def __init__(self):
         self.df = None
@@ -1135,12 +1596,13 @@ class JobCSVProcessor:
         self.tokenized_df = None
         self.data_summary = None
         self.tokenization_summary = None
-        self.tokenizer = JobDataTokenizer()
+        self.dataset_analysis = None
+        self.tokenizer = CreativeJobTokenizer()
         self.vector_store = RAGVectorStore()
-        self.conversation_manager = ConversationManager()
+        self.conversation_manager = CreativeJobConversationManager()
 
     def load_csv(self, uploaded_file) -> bool:
-        """Load and validate job data CSV"""
+        """Load and validate creative job data CSV"""
         try:
             encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
 
@@ -1159,14 +1621,14 @@ class JobCSVProcessor:
             if self.df is None:
                 raise ValueError("Could not read file with any supported encoding")
 
-            # Validate job data structure
+            # Validate creative job data structure
             if self.df.empty:
                 raise ValueError("CSV file is empty")
                 
             if len(self.df.columns) == 0:
                 raise ValueError("CSV file has no columns")
 
-            # Check for expected job data columns
+            # Check for expected creative job data columns
             expected_columns = ['company', 'job', 'title', 'description', 'location', 'salary']
             found_columns = []
             
@@ -1178,172 +1640,164 @@ class JobCSVProcessor:
                         break
 
             if len(found_columns) < 3:
-                st.warning("This doesn't appear to be a typical job dataset. Proceeding with general processing.")
+                st.warning("Processing as general job dataset. Creative-specific analysis will still be performed.")
             else:
-                st.success(f"Detected job dataset with columns: {', '.join(found_columns)}")
+                st.success(f"Detected creative job dataset with columns: {', '.join(found_columns)}")
 
-            logger.info(f"Loaded job CSV: {len(self.df)} rows, {len(self.df.columns)} columns")
+            logger.info(f"Loaded creative job CSV: {len(self.df)} rows, {len(self.df.columns)} columns")
             return True
             
         except Exception as e:
             st.error(f"Error loading CSV: {str(e)}")
             logger.error(f"CSV loading error: {str(e)}")
             return False
-            
-    def clean_job_data(self) -> bool:
-            """Clean and preprocess job data with domain-specific logic"""
-            if self.df is None:
-                st.error("No data loaded")
-                return False
-    
-            try:
-                self.processed_df = self.df.copy()
-    
-                # Standardize column names for job data
-                column_mapping = {}
-                used_names = set()
-                
-                for col in self.processed_df.columns:
-                    original_col = col
-                    clean_col = re.sub(r'[^\w\s]', '', str(col)).strip().replace(' ', '_').lower()
-                    
-                    # Map to standard job data column names based on your CSV structure
-                    if any(word in clean_col for word in ['company', 'employer', 'firm']):
-                        clean_col = 'company'
-                    elif 'summary' in clean_col and 'job' in clean_col and 'title' in clean_col:
-                        clean_col = 'summary_job_title'
-                    elif 'displayed' in clean_col and 'job' in clean_col and 'title' in clean_col:
-                        clean_col = 'displayed_job_title'
-                    elif 'job' in clean_col and 'description' in clean_col:
-                        clean_col = 'job_description'
-                    elif 'detailed' in clean_col and 'job' in clean_col and 'location' in clean_col:
-                        clean_col = 'detailed_job_location'
-                    elif 'city' in clean_col and 'job' in clean_col and 'location' in clean_col:
-                        clean_col = 'city_job_location'
-                    elif 'state' in clean_col and 'job' in clean_col and 'location' in clean_col:
-                        clean_col = 'state_job_location'
-                    elif 'country' in clean_col and 'job' in clean_col and 'location' in clean_col:
-                        clean_col = 'country_job_location'
-                    elif 'job' in clean_col and 'salary' in clean_col:
-                        clean_col = 'job_salary'
-                    elif 'source' in clean_col:
-                        clean_col = 'source'
-                    elif 'date' in clean_col:
-                        clean_col = 'date'
-                    elif 'id' in clean_col:
-                        clean_col = 'id'
-                    
-                    # Ensure unique column names
-                    if clean_col in used_names:
-                        counter = 1
-                        base_name = clean_col
-                        while clean_col in used_names:
-                            clean_col = f"{base_name}_{counter}"
-                            counter += 1
-                    
-                    used_names.add(clean_col)
-                    column_mapping[original_col] = clean_col
-    
-                # Apply column name mapping
-                self.processed_df = self.processed_df.rename(columns=column_mapping)
-    
-                # Handle missing values with job-specific logic
-                for col in self.processed_df.columns:
-                    if col in ['company', 'summary_job_title', 'displayed_job_title']:
-                        self.processed_df[col] = self.processed_df[col].fillna('Unknown')
-                    elif col in ['city_job_location', 'state_job_location', 'country_job_location', 'detailed_job_location']:
-                        self.processed_df[col] = self.processed_df[col].fillna('Unknown')
-                    elif col == 'job_salary':
-                        self.processed_df[col] = self.processed_df[col].fillna('Not Specified')
-                    elif col == 'job_description':
-                        self.processed_df[col] = self.processed_df[col].fillna('No description provided')
-                    elif col == 'source':
-                        self.processed_df[col] = self.processed_df[col].fillna('Unknown Source')
-                    elif self.processed_df[col].dtype == 'object':
-                        self.processed_df[col] = self.processed_df[col].fillna('Unknown')
-                    else:
-                        # For numeric columns
-                        try:
-                            median_val = self.processed_df[col].median()
-                            fill_value = median_val if pd.notna(median_val) else 0
-                            self.processed_df[col] = self.processed_df[col].fillna(fill_value)
-                        except Exception as e:
-                            logger.warning(f"Could not calculate median for column {col}: {e}")
-                            self.processed_df[col] = self.processed_df[col].fillna(0)
-    
-                # Clean text fields specifically - THIS IS THE KEY FIX
-                text_columns = ['company', 'summary_job_title', 'displayed_job_title', 'job_description', 
-                              'city_job_location', 'state_job_location', 'country_job_location', 
-                              'detailed_job_location', 'source']
-                
-                for col in text_columns:
-                    if col in self.processed_df.columns:
-                        try:
-                            # Create a copy of the series to work with
-                            series_to_clean = self.processed_df[col].copy()
-                            
-                            # Ensure it's string type
-                            series_to_clean = series_to_clean.astype(str)
-                            
-                            # Apply string operations safely
-                            # Remove extra whitespace
-                            series_to_clean = series_to_clean.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
-                            
-                            # Replace multiple spaces with single space  
-                            series_to_clean = series_to_clean.apply(lambda x: re.sub(r'\s+', ' ', str(x)) if pd.notna(x) else 'Unknown')
-                            
-                            # Assign back to the DataFrame
-                            self.processed_df[col] = series_to_clean
-                            
-                        except Exception as e:
-                            logger.warning(f"Could not clean text column {col}: {e}")
-                            try:
-                                # Ultimate fallback: just ensure it's string
-                                self.processed_df[col] = self.processed_df[col].astype(str)
-                            except Exception as e2:
-                                logger.error(f"Complete failure cleaning column {col}: {e2}")
-                                continue
-    
-                # Handle date column if present
-                if 'date' in self.processed_df.columns:
-                    try:
-                        # Convert date column
-                        self.processed_df['date'] = pd.to_datetime(self.processed_df['date'], errors='coerce')
-                        # Fill failed conversions with a default date
-                        self.processed_df['date'] = self.processed_df['date'].fillna(pd.Timestamp('2023-01-01'))
-                    except Exception as e:
-                        logger.warning(f"Could not convert date column: {e}")
-    
-                # Clean salary information
-                if 'job_salary' in self.processed_df.columns:
-                    try:
-                        # Clean salary using apply method to avoid str accessor issues
-                        self.processed_df['job_salary'] = self.processed_df['job_salary'].apply(
-                            lambda x: re.sub(r'[\$,]', '', str(x)) if pd.notna(x) else 'Not Specified'
-                        )
-                    except Exception as e:
-                        logger.warning(f"Could not clean salary column: {e}")
-                        # Fallback: just convert to string
-                        self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
-    
-                logger.info(f"Job data cleaning completed: {len(self.processed_df)} rows, {len(self.processed_df.columns)} columns")
-                return True
-                
-            except Exception as e:
-                st.error(f"Error cleaning job data: {str(e)}")
-                logger.error(f"Job data cleaning error: {str(e)}")
-                import traceback
-                logger.error(f"Full traceback: {traceback.format_exc()}")
-                return False
 
-    def tokenize_job_dataset(self) -> bool:
-        """Perform job-specific tokenization of the dataset"""
+    def clean_job_data(self) -> bool:
+        """Clean and preprocess creative job data with domain-specific logic"""
+        if self.df is None:
+            st.error("No data loaded")
+            return False
+
+        try:
+            self.processed_df = self.df.copy()
+
+            # Standardize column names for creative job data
+            column_mapping = {}
+            used_names = set()
+            
+            for col in self.processed_df.columns:
+                original_col = col
+                clean_col = re.sub(r'[^\w\s]', '', str(col)).strip().replace(' ', '_').lower()
+                
+                # Map to standard creative job data column names
+                if any(word in clean_col for word in ['company', 'employer', 'firm']):
+                    clean_col = 'company'
+                elif 'summary' in clean_col and 'job' in clean_col and 'title' in clean_col:
+                    clean_col = 'summary_job_title'
+                elif 'displayed' in clean_col and 'job' in clean_col and 'title' in clean_col:
+                    clean_col = 'displayed_job_title'
+                elif 'job' in clean_col and 'description' in clean_col:
+                    clean_col = 'job_description'
+                elif 'detailed' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'detailed_job_location'
+                elif 'city' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'city_job_location'
+                elif 'state' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'state_job_location'
+                elif 'country' in clean_col and 'job' in clean_col and 'location' in clean_col:
+                    clean_col = 'country_job_location'
+                elif 'job' in clean_col and 'salary' in clean_col:
+                    clean_col = 'job_salary'
+                elif 'source' in clean_col:
+                    clean_col = 'source'
+                elif 'date' in clean_col:
+                    clean_col = 'date'
+                elif 'id' in clean_col:
+                    clean_col = 'id'
+                
+                # Ensure unique column names
+                if clean_col in used_names:
+                    counter = 1
+                    base_name = clean_col
+                    while clean_col in used_names:
+                        clean_col = f"{base_name}_{counter}"
+                        counter += 1
+                
+                used_names.add(clean_col)
+                column_mapping[original_col] = clean_col
+
+            # Apply column name mapping
+            self.processed_df = self.processed_df.rename(columns=column_mapping)
+
+            # Handle missing values with creative job-specific logic
+            for col in self.processed_df.columns:
+                if col in ['company', 'summary_job_title', 'displayed_job_title']:
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown')
+                elif col in ['city_job_location', 'state_job_location', 'country_job_location', 'detailed_job_location']:
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown')
+                elif col == 'job_salary':
+                    self.processed_df[col] = self.processed_df[col].fillna('Not Specified')
+                elif col == 'job_description':
+                    self.processed_df[col] = self.processed_df[col].fillna('No description provided')
+                elif col == 'source':
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown Source')
+                elif self.processed_df[col].dtype == 'object':
+                    self.processed_df[col] = self.processed_df[col].fillna('Unknown')
+                else:
+                    # For numeric columns
+                    try:
+                        median_val = self.processed_df[col].median()
+                        fill_value = median_val if pd.notna(median_val) else 0
+                        self.processed_df[col] = self.processed_df[col].fillna(fill_value)
+                    except Exception as e:
+                        logger.warning(f"Could not calculate median for column {col}: {e}")
+                        self.processed_df[col] = self.processed_df[col].fillna(0)
+
+            # Clean text fields specifically
+            text_columns = ['company', 'summary_job_title', 'displayed_job_title', 'job_description', 
+                          'city_job_location', 'state_job_location', 'country_job_location', 
+                          'detailed_job_location', 'source']
+            
+            for col in text_columns:
+                if col in self.processed_df.columns:
+                    try:
+                        # Create a copy of the series to work with
+                        series_to_clean = self.processed_df[col].copy()
+                        
+                        # Ensure it's string type
+                        series_to_clean = series_to_clean.astype(str)
+                        
+                        # Apply string operations safely
+                        series_to_clean = series_to_clean.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                        series_to_clean = series_to_clean.apply(lambda x: re.sub(r'\s+', ' ', str(x)) if pd.notna(x) else 'Unknown')
+                        
+                        # Assign back to the DataFrame
+                        self.processed_df[col] = series_to_clean
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not clean text column {col}: {e}")
+                        try:
+                            self.processed_df[col] = self.processed_df[col].astype(str)
+                        except Exception as e2:
+                            logger.error(f"Complete failure cleaning column {col}: {e2}")
+                            continue
+
+            # Handle date column if present
+            if 'date' in self.processed_df.columns:
+                try:
+                    self.processed_df['date'] = pd.to_datetime(self.processed_df['date'], errors='coerce')
+                    self.processed_df['date'] = self.processed_df['date'].fillna(pd.Timestamp('2023-01-01'))
+                except Exception as e:
+                    logger.warning(f"Could not convert date column: {e}")
+
+            # Clean salary information
+            if 'job_salary' in self.processed_df.columns:
+                try:
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].apply(
+                        lambda x: re.sub(r'[\$,]', '', str(x)) if pd.notna(x) else 'Not Specified'
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not clean salary column: {e}")
+                    self.processed_df['job_salary'] = self.processed_df['job_salary'].astype(str)
+
+            logger.info(f"Creative job data cleaning completed: {len(self.processed_df)} rows, {len(self.processed_df.columns)} columns")
+            return True
+            
+        except Exception as e:
+            st.error(f"Error cleaning creative job data: {str(e)}")
+            logger.error(f"Creative job data cleaning error: {str(e)}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
+
+    def tokenize_creative_dataset(self) -> bool:
+        """Perform creative job-specific tokenization of the dataset"""
         if self.processed_df is None:
             st.error("No processed data available")
             return False
 
         try:
-            st.info("Starting job-specific tokenization process...")
+            st.info("Starting creative job-specific tokenization process...")
 
             # Initialize tokenized dataframe
             self.tokenized_df = self.processed_df.copy()
@@ -1362,40 +1816,39 @@ class JobCSVProcessor:
                 token_column_name = f"{col}_tokens"
 
                 try:
-                    # Job-specific tokenization based on column type
+                    # Creative job-specific tokenization based on column type
                     if col == 'company':
-                        # Company name tokenization
                         for value in self.processed_df[col]:
                             tokens = self.tokenizer.tokenize_company(value)
                             column_tokens.extend(tokens)
 
                     elif col in ['summary_job_title', 'displayed_job_title']:
-                        # Job title tokenization
                         for value in self.processed_df[col]:
                             tokens = self.tokenizer.tokenize_job_title(value)
                             column_tokens.extend(tokens)
 
-                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
-                        # Location tokenization
-                        location_type = col.split('_')[0]  # Extract 'city', 'state', or 'country'
+                    elif col == 'job_description':
+                        # Enhanced creative job description tokenization
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_location(value, location_type)
+                            creative_tokens = self.tokenizer.tokenize_creative_job_description(value)
+                            # Flatten all creative analysis results
+                            for token_type, tokens in creative_tokens.items():
+                                column_tokens.extend(tokens)
+
+                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
+                        location_type = col.split('_')[0]
+                        for value in self.processed_df[col]:
+                            tokens = self.tokenizer.tokenize_text(value, method='lemmatize')
+                            tokens.extend([f'{location_type}_location', 'geographic_data'])
                             column_tokens.extend(tokens)
 
                     elif col == 'job_salary':
-                        # Salary tokenization
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_salary(value)
-                            column_tokens.extend(tokens)
-
-                    elif col == 'job_description':
-                        # Job description tokenization (text analysis)
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_text(value, method='lemmatize')
+                            tokens = self.tokenizer.tokenize_text(str(value))
+                            tokens.extend(['salary_info', 'compensation'])
                             column_tokens.extend(tokens)
 
                     elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
-                        # Date tokenization (if applicable)
                         for value in self.processed_df[col]:
                             try:
                                 date_str = str(value)
@@ -1426,26 +1879,23 @@ class JobCSVProcessor:
                     # Create tokenized column for display
                     token_lists = []
                     
-                    if col == 'company':
+                    if col == 'job_description':
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_company(value)
-                            token_lists.append(' | '.join(tokens))
-                    elif col in ['summary_job_title', 'displayed_job_title']:
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_job_title(value)
-                            token_lists.append(' | '.join(tokens))
-                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
-                        location_type = col.split('_')[0]
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_location(value, location_type)
-                            token_lists.append(' | '.join(tokens))
-                    elif col == 'job_salary':
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_salary(value)
-                            token_lists.append(' | '.join(tokens))
+                            creative_tokens = self.tokenizer.tokenize_creative_job_description(value)
+                            all_desc_tokens = []
+                            for token_type, tokens in creative_tokens.items():
+                                if tokens:
+                                    all_desc_tokens.extend([f"{token_type}:{token}" for token in tokens[:3]])
+                            token_lists.append(' | '.join(all_desc_tokens))
                     else:
+                        # Standard tokenization for other columns
                         for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
+                            if col == 'company':
+                                tokens = self.tokenizer.tokenize_company(value)
+                            elif col in ['summary_job_title', 'displayed_job_title']:
+                                tokens = self.tokenizer.tokenize_job_title(value)
+                            else:
+                                tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
                             token_lists.append(' | '.join(tokens))
 
                     self.tokenized_df[token_column_name] = token_lists
@@ -1464,7 +1914,7 @@ class JobCSVProcessor:
                 # Update progress
                 progress_bar.progress((idx + 1) / total_columns)
 
-            # Create job-specific tokenization summary
+            # Create creative job-specific tokenization summary
             valid_stats = {k: v for k, v in column_token_stats.items() if v['total_tokens'] > 0}
             
             self.tokenization_summary = {
@@ -1477,55 +1927,76 @@ class JobCSVProcessor:
                     'average_tokens_per_column': np.mean([stats['total_tokens'] for stats in valid_stats.values()]) if valid_stats else 0,
                     'average_diversity_per_column': np.mean([stats['token_diversity'] for stats in valid_stats.values()]) if valid_stats else 0
                 },
-                'job_specific_insights': {
+                'creative_job_insights': {
                     'companies_tokenized': len(all_tokens.get('company', [])),
                     'job_titles_tokenized': len(all_tokens.get('summary_job_title', [])) + len(all_tokens.get('displayed_job_title', [])),
+                    'descriptions_tokenized': len(all_tokens.get('job_description', [])),
                     'locations_tokenized': len(all_tokens.get('city_job_location', [])) + len(all_tokens.get('state_job_location', [])),
                     'salary_tokens': len(all_tokens.get('job_salary', []))
                 }
             }
 
-            st.success("Job-specific tokenization completed successfully!")
-            logger.info(f"Job tokenization completed: {len(valid_stats)} successful columns")
+            st.success("Creative job-specific tokenization completed successfully!")
+            logger.info(f"Creative job tokenization completed: {len(valid_stats)} successful columns")
             return True
             
         except Exception as e:
-            st.error(f"Error during job tokenization: {str(e)}")
-            logger.error(f"Job tokenization error: {str(e)}")
+            st.error(f"Error during creative job tokenization: {str(e)}")
+            logger.error(f"Creative job tokenization error: {str(e)}")
             return False
     
-    def build_job_rag_index(self) -> bool:
-        """Build RAG vector index optimized for job data"""
-        if self.processed_df is None or self.tokenized_df is None:
-            st.error("Please process and tokenize job data first")
+    def analyze_creative_dataset(self) -> bool:
+        """Perform comprehensive creative dataset analysis"""
+        if self.processed_df is None:
+            st.error("Please process data first")
             return False
         
         try:
-            st.info("Building job-specific RAG vector index...")
+            st.info("Performing comprehensive creative job analysis...")
+            self.dataset_analysis = analyze_creative_job_dataset(self.processed_df)
+            st.success("Creative dataset analysis completed!")
+            return True
+        except Exception as e:
+            st.error(f"Error during dataset analysis: {str(e)}")
+            logger.error(f"Dataset analysis error: {str(e)}")
+            return False
+    
+    def build_creative_rag_index(self) -> bool:
+        """Build RAG vector index optimized for creative job data"""
+        if self.processed_df is None or self.tokenized_df is None:
+            st.error("Please process and tokenize creative job data first")
+            return False
+        
+        try:
+            st.info("Building creative job-specific RAG vector index...")
             
             # Generate data summary if not already done
             if self.data_summary is None:
-                self.generate_job_data_summary()
+                self.generate_creative_data_summary()
             
-            # Create job-specific document chunks
+            # Perform dataset analysis if not done
+            if self.dataset_analysis is None:
+                self.analyze_creative_dataset()
+            
+            # Create creative job-specific document chunks
             chunks = self.vector_store.create_document_chunks(self.processed_df, self.data_summary)
             
             # Build vector index
             if chunks and self.vector_store.build_index(chunks):
-                st.success("Job RAG index built successfully!")
-                logger.info("Job RAG index built successfully")
+                st.success("Creative job RAG index built successfully!")
+                logger.info("Creative job RAG index built successfully")
                 return True
             else:
-                st.error("Failed to build job RAG index")
+                st.error("Failed to build creative job RAG index")
                 return False
                 
         except Exception as e:
-            st.error(f"Error building job RAG index: {str(e)}")
-            logger.error(f"Job RAG index building error: {str(e)}")
+            st.error(f"Error building creative job RAG index: {str(e)}")
+            logger.error(f"Creative job RAG index building error: {str(e)}")
             return False
 
-    def generate_job_data_summary(self) -> Optional[Dict]:
-        """Generate comprehensive summary optimized for job data"""
+    def generate_creative_data_summary(self) -> Optional[Dict]:
+        """Generate comprehensive summary optimized for creative job data"""
         if self.processed_df is None:
             return None
 
@@ -1539,10 +2010,11 @@ class JobCSVProcessor:
                 },
                 "column_details": {},
                 "tokenization_info": self.tokenization_summary if self.tokenization_summary else None,
-                "job_market_insights": {}
+                "creative_job_insights": {},
+                "dataset_analysis": self.dataset_analysis if self.dataset_analysis else None
             }
 
-            # Analyze each column with job-specific insights
+            # Analyze each column with creative job-specific insights
             for col in self.processed_df.columns:
                 try:
                     col_info = {
@@ -1551,7 +2023,7 @@ class JobCSVProcessor:
                         "unique_count": int(self.processed_df[col].nunique())
                     }
 
-                    # Add job-specific analysis
+                    # Add creative job-specific analysis
                     if col == 'company':
                         top_companies = self.processed_df[col].value_counts().head(5)
                         col_info.update({
@@ -1574,7 +2046,6 @@ class JobCSVProcessor:
                         })
 
                     elif col == 'job_salary':
-                        # Analyze salary data
                         salary_series = self.processed_df[col].astype(str)
                         non_empty_salaries = salary_series[salary_series != 'Not Specified']
                         col_info.update({
@@ -1604,7 +2075,7 @@ class JobCSVProcessor:
                         "error": str(col_error)
                     }
 
-            # Generate job market insights
+            # Generate creative job market insights
             try:
                 insights = {}
                 
@@ -1635,24 +2106,44 @@ class JobCSVProcessor:
                         'max_occurrences': int(title_counts.iloc[0]) if len(title_counts) > 0 else 0
                     }
                 
-                summary['job_market_insights'] = insights
+                # Creative-specific insights from dataset analysis
+                if self.dataset_analysis:
+                    role_analysis = self.dataset_analysis.get('role_analysis', {})
+                    adobe_analysis = self.dataset_analysis.get('adobe_analysis', {})
+                    ai_analysis = self.dataset_analysis.get('ai_tools_analysis', {})
+                    
+                    insights['creative_roles'] = {
+                        'designer_jobs': role_analysis.get('designer_count', 0),
+                        'video_professional_jobs': role_analysis.get('video_professional_count', 0),
+                        'photo_professional_jobs': role_analysis.get('photo_professional_count', 0)
+                    }
+                    
+                    insights['software_requirements'] = {
+                        'adobe_only_jobs': adobe_analysis.get('adobe_only_count', 0),
+                        'non_adobe_only_jobs': adobe_analysis.get('non_adobe_only_count', 0),
+                        'both_adobe_and_non_adobe': adobe_analysis.get('both_apps_count', 0),
+                        'ai_tools_jobs': ai_analysis.get('ai_tools_count', 0)
+                    }
+                
+                summary['creative_job_insights'] = insights
                 
             except Exception as insights_error:
-                logger.warning(f"Error generating job market insights: {str(insights_error)}")
-                summary['job_market_insights'] = {'error': str(insights_error)}
+                logger.warning(f"Error generating creative job insights: {str(insights_error)}")
+                summary['creative_job_insights'] = {'error': str(insights_error)}
 
             self.data_summary = summary
-            logger.info("Job data summary generated successfully")
+            logger.info("Creative job data summary generated successfully")
             return summary
             
         except Exception as e:
-            st.error(f"Error generating job data summary: {str(e)}")
-            logger.error(f"Job data summary generation error: {str(e)}")
+            st.error(f"Error generating creative job data summary: {str(e)}")
+            logger.error(f"Creative job data summary generation error: {str(e)}")
             return None
 
+
 def main():
-    st.title("Job Data RAG Analyzer v3.0 - Optimized for Job Listings")
-    st.markdown("Upload your job dataset CSV and ask intelligent questions with **RAG (Retrieval-Augmented Generation)** and **job-specific tokenization**!")
+    st.title("Creative Professionals Job Data RAG Analyzer v3.1")
+    st.markdown("Upload your creative job dataset CSV and ask intelligent questions with **Enhanced RAG** optimized for **Adobe vs Non-Adobe analysis**, **Creative Roles**, and **AI Tools**!")
     
     # Sidebar status and configuration
     with st.sidebar:
@@ -1691,149 +2182,148 @@ def main():
 
         # OpenAI API Key
         api_key = st.text_input("OpenAI API Key", type="password",
+                               help="Enter your OpenAI API key for RAG-enhanced creative job analysis")
 
         vector_backend_choice = st.selectbox('Vector backend (preference)', options=['usearch','faiss','bruteforce'], index=0)
-        if 'job_processor' in st.session_state and hasattr(st.session_state['job_processor'], 'vector_store'):
+        if 'creative_processor' in st.session_state and hasattr(st.session_state['creative_processor'], 'vector_store'):
             try:
-                st.session_state['job_processor'].vector_store.backend_preference = vector_backend_choice
+                st.session_state['creative_processor'].vector_store.backend_preference = vector_backend_choice
             except Exception:
                 pass
 
-                               help="Enter your OpenAI API key for RAG-enhanced queries")
-
         st.markdown("---")
-        st.header("RAG Settings")
+        st.header("Creative Analysis Settings")
         
-        rag_k_results = st.slider("Retrieved Documents", 3, 15, 8, 
-                                 help="Number of relevant job documents to retrieve")
+        rag_k_results = st.slider("Retrieved Documents", 5, 20, 10, 
+                                 help="Number of relevant creative job documents to retrieve")
         
         maintain_context = st.checkbox("Maintain Conversation Context", value=True,
-                                      help="Keep context from previous job-related questions")
+                                      help="Keep context from previous creative job questions")
 
     # Check NLTK data
     if not download_nltk_data():
         st.error("Failed to download required NLTK data. Some tokenization features may not work properly.")
 
     # Initialize session state
-    if 'job_processor' not in st.session_state:
-        st.session_state.job_processor = JobCSVProcessor()
-    if 'openai_processor' not in st.session_state:
-        st.session_state.openai_processor = None
-    if 'rag_ready' not in st.session_state:
-        st.session_state.rag_ready = False
+    if 'creative_processor' not in st.session_state:
+        st.session_state.creative_processor = CreativeJobCSVProcessor()
+    if 'creative_openai_processor' not in st.session_state:
+        st.session_state.creative_openai_processor = None
+    if 'creative_rag_ready' not in st.session_state:
+        st.session_state.creative_rag_ready = False
 
     # Configure OpenAI if API key provided
     if api_key:
         try:
-            st.session_state.openai_processor = OpenAIQueryProcessor(api_key)
-            if st.session_state.openai_processor.is_available():
+            st.session_state.creative_openai_processor = CreativeJobOpenAIProcessor(api_key)
+            if st.session_state.creative_openai_processor.is_available():
                 st.sidebar.success("✅ OpenAI API configured")
             else:
-                st.sidebar.error(f"❌ OpenAI error: {st.session_state.openai_processor._initialization_error}")
+                st.sidebar.error(f"❌ OpenAI error: {st.session_state.creative_openai_processor._initialization_error}")
         except Exception as e:
             st.sidebar.error(f"❌ OpenAI error: {str(e)}")
     else:
-        st.sidebar.warning("⚠️ Enter OpenAI API key for enhanced analysis")
+        st.sidebar.warning("⚠️ Enter OpenAI API key for enhanced creative job analysis")
 
     # File upload section
-    st.header("📁 Upload Job Dataset")
-    uploaded_file = st.file_uploader("Choose a CSV file containing job data", type="csv",
-                                   help="Expected columns: Company, Job Title, Location, Salary, Description, etc.")
+    st.header("📁 Upload Creative Job Dataset")
+    uploaded_file = st.file_uploader("Choose a CSV file containing creative job data", type="csv",
+                                   help="Expected columns: Company, Job Title, Job Description, Location, Salary, etc.")
 
     if uploaded_file is not None:
         # Load and display basic info
-        if st.session_state.job_processor.load_csv(uploaded_file):
-            st.success("✅ Job dataset loaded successfully!")
+        if st.session_state.creative_processor.load_csv(uploaded_file):
+            st.success("✅ Creative job dataset loaded successfully!")
 
             # Display dataset overview
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Total Jobs", len(st.session_state.job_processor.df))
+                st.metric("Total Jobs", len(st.session_state.creative_processor.df))
             with col2:
-                st.metric("Data Columns", len(st.session_state.job_processor.df.columns))
+                st.metric("Data Columns", len(st.session_state.creative_processor.df.columns))
             with col3:
-                # Try to identify job-specific columns
-                job_cols = 0
-                for col in st.session_state.job_processor.df.columns:
-                    if any(word in col.lower() for word in ['company', 'job', 'title', 'salary', 'location']):
-                        job_cols += 1
-                st.metric("Job-Related Columns", job_cols)
+                # Try to identify creative job-specific columns
+                creative_cols = 0
+                for col in st.session_state.creative_processor.df.columns:
+                    if any(word in col.lower() for word in ['company', 'job', 'title', 'description', 'location']):
+                        creative_cols += 1
+                st.metric("Job-Related Columns", creative_cols)
 
             # Show column information
             with st.expander("📊 Dataset Column Information"):
                 col_info = []
-                for col in st.session_state.job_processor.df.columns:
+                for col in st.session_state.creative_processor.df.columns:
                     col_info.append({
                         'Column': col,
-                        'Type': str(st.session_state.job_processor.df[col].dtype),
-                        'Non-Null': f"{st.session_state.job_processor.df[col].count():,}",
-                        'Unique Values': f"{st.session_state.job_processor.df[col].nunique():,}",
-                        'Sample Value': str(st.session_state.job_processor.df[col].iloc[0])[:50] + "..." if len(str(st.session_state.job_processor.df[col].iloc[0])) > 50 else str(st.session_state.job_processor.df[col].iloc[0])
+                        'Type': str(st.session_state.creative_processor.df[col].dtype),
+                        'Non-Null': f"{st.session_state.creative_processor.df[col].count():,}",
+                        'Unique Values': f"{st.session_state.creative_processor.df[col].nunique():,}",
+                        'Sample Value': str(st.session_state.creative_processor.df[col].iloc[0])[:50] + "..." if len(str(st.session_state.creative_processor.df[col].iloc[0])) > 50 else str(st.session_state.creative_processor.df[col].iloc[0])
                     })
                 st.dataframe(pd.DataFrame(col_info), use_container_width=True)
 
             # Show sample data
-            with st.expander("👀 Sample Job Data"):
-                st.dataframe(st.session_state.job_processor.df.head(10))
+            with st.expander("👀 Sample Creative Job Data"):
+                st.dataframe(st.session_state.creative_processor.df.head(10))
 
             # Processing workflow
-            st.header("🔧 Data Processing & RAG Setup")
+            st.header("🔧 Creative Job Data Processing & RAG Setup")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
 
             with col1:
-                if st.button("🧹 Clean Job Data", type="secondary", use_container_width=True):
-                    with st.spinner("Cleaning and standardizing job data..."):
-                        if st.session_state.job_processor.clean_job_data():
-                            st.success("✅ Job data cleaned successfully!")
-                            # Show improvements
-                            with st.expander("View Cleaned Data Changes"):
-                                st.write("**Standardized Column Names:**")
-                                for old, new in zip(st.session_state.job_processor.df.columns, 
-                                                  st.session_state.job_processor.processed_df.columns):
-                                    if old != new:
-                                        st.write(f"• {old} → {new}")
-                                
-                                st.write("**Missing Value Handling:**")
-                                null_counts = st.session_state.job_processor.processed_df.isnull().sum()
-                                st.write(f"• Total null values: {null_counts.sum()}")
+                if st.button("🧹 Clean Data", type="secondary", use_container_width=True):
+                    with st.spinner("Cleaning and standardizing creative job data..."):
+                        if st.session_state.creative_processor.clean_job_data():
+                            st.success("✅ Creative job data cleaned successfully!")
                         else:
-                            st.error("❌ Error cleaning job data")
+                            st.error("❌ Error cleaning creative job data")
 
             with col2:
-                if st.button("🔤 Tokenize Job Data", type="secondary", use_container_width=True):
-                    if st.session_state.job_processor.processed_df is not None:
-                        with st.spinner("Performing job-specific tokenization..."):
-                            if st.session_state.job_processor.tokenize_job_dataset():
-                                st.session_state.job_processor.generate_job_data_summary()
-                                st.success("✅ Job tokenization completed!")
+                if st.button("🔤 Tokenize Data", type="secondary", use_container_width=True):
+                    if st.session_state.creative_processor.processed_df is not None:
+                        with st.spinner("Performing creative job-specific tokenization..."):
+                            if st.session_state.creative_processor.tokenize_creative_dataset():
+                                st.success("✅ Creative job tokenization completed!")
                             else:
-                                st.error("❌ Error during job tokenization")
+                                st.error("❌ Error during creative job tokenization")
                     else:
                         st.error("Please clean data first")
 
             with col3:
-                if st.button("🧠 Build RAG Index", type="primary", use_container_width=True):
-                    if (st.session_state.job_processor.processed_df is not None and 
-                        st.session_state.job_processor.tokenized_df is not None):
-                        with st.spinner("Building job-specific RAG vector index..."):
-                            if st.session_state.job_processor.build_job_rag_index():
-                                st.session_state.rag_ready = True
-                                st.success("✅ Job RAG system ready!")
+                if st.button("📊 Analyze Dataset", type="secondary", use_container_width=True):
+                    if st.session_state.creative_processor.processed_df is not None:
+                        with st.spinner("Analyzing creative job patterns..."):
+                            if st.session_state.creative_processor.analyze_creative_dataset():
+                                st.session_state.creative_processor.generate_creative_data_summary()
+                                st.success("✅ Creative dataset analysis completed!")
                             else:
-                                st.error("❌ Error building RAG index")
+                                st.error("❌ Error during dataset analysis")
+                    else:
+                        st.error("Please clean data first")
+
+            with col4:
+                if st.button("🧠 Build RAG Index", type="primary", use_container_width=True):
+                    if (st.session_state.creative_processor.processed_df is not None and 
+                        st.session_state.creative_processor.tokenized_df is not None):
+                        with st.spinner("Building creative job-specific RAG vector index..."):
+                            if st.session_state.creative_processor.build_creative_rag_index():
+                                st.session_state.creative_rag_ready = True
+                                st.success("✅ Creative job RAG system ready!")
+                            else:
+                                st.error("❌ Error building creative RAG index")
                     else:
                         st.error("Please clean and tokenize data first")
 
             # One-click workflow
             st.markdown("### 🚀 Complete Workflow")
-            if st.button("🔄 Process Everything (Clean + Tokenize + Build RAG)", type="primary", use_container_width=True):
+            if st.button("🔥 Process Everything (Clean + Tokenize + Analyze + Build RAG)", type="primary", use_container_width=True):
                 workflow_success = True
                 
-                with st.spinner("Running complete job data processing workflow..."):
+                with st.spinner("Running complete creative job processing workflow..."):
                     # Step 1: Clean
-                    st.info("Step 1/3: Cleaning job data...")
-                    if not st.session_state.job_processor.clean_job_data():
+                    st.info("Step 1/4: Cleaning creative job data...")
+                    if not st.session_state.creative_processor.clean_job_data():
                         st.error("❌ Data cleaning failed")
                         workflow_success = False
                     else:
@@ -1841,247 +2331,303 @@ def main():
                     
                     # Step 2: Tokenize
                     if workflow_success:
-                        st.info("Step 2/3: Tokenizing job data...")
-                        if st.session_state.job_processor.tokenize_job_dataset():
-                            st.session_state.job_processor.generate_job_data_summary()
+                        st.info("Step 2/4: Tokenizing creative job data...")
+                        if st.session_state.creative_processor.tokenize_creative_dataset():
                             st.success("✅ Data tokenized")
                         else:
                             st.error("❌ Tokenization failed")
                             workflow_success = False
                     
-                    # Step 3: Build RAG
+                    # Step 3: Analyze
                     if workflow_success:
-                        st.info("Step 3/3: Building RAG index...")
-                        if st.session_state.job_processor.build_job_rag_index():
-                            st.session_state.rag_ready = True
-                            st.success("✅ Complete RAG system ready!")
+                        st.info("Step 3/4: Analyzing creative job patterns...")
+                        if st.session_state.creative_processor.analyze_creative_dataset():
+                            st.session_state.creative_processor.generate_creative_data_summary()
+                            st.success("✅ Dataset analyzed")
+                        else:
+                            st.error("❌ Analysis failed")
+                            workflow_success = False
+                    
+                    # Step 4: Build RAG
+                    if workflow_success:
+                        st.info("Step 4/4: Building creative RAG index...")
+                        if st.session_state.creative_processor.build_creative_rag_index():
+                            st.session_state.creative_rag_ready = True
+                            st.success("✅ Complete creative RAG system ready!")
                         else:
                             st.error("❌ RAG index building failed")
                             workflow_success = False
 
                 if workflow_success:
                     st.balloons()
-                    st.success("🎉 Complete job data processing workflow completed successfully!")
+                    st.success("🎉 Complete creative job processing workflow completed successfully!")
 
             # Show processing status
-            status_cols = st.columns(3)
+            status_cols = st.columns(4)
             with status_cols[0]:
-                if st.session_state.job_processor.processed_df is not None:
+                if st.session_state.creative_processor.processed_df is not None:
                     st.info("✅ Data Cleaned")
                 else:
                     st.warning("⏳ Data Not Cleaned")
             
             with status_cols[1]:
-                if st.session_state.job_processor.tokenized_df is not None:
+                if st.session_state.creative_processor.tokenized_df is not None:
                     st.info("✅ Data Tokenized")
                 else:
                     st.warning("⏳ Data Not Tokenized")
             
             with status_cols[2]:
-                if st.session_state.rag_ready:
+                if st.session_state.creative_processor.dataset_analysis is not None:
+                    st.info("✅ Dataset Analyzed")
+                else:
+                    st.warning("⏳ Dataset Not Analyzed")
+            
+            with status_cols[3]:
+                if st.session_state.creative_rag_ready:
                     st.info("✅ RAG System Ready")
                 else:
                     st.warning("⏳ RAG Not Built")
 
             # Enhanced analysis section
-            if st.session_state.job_processor.tokenized_df is not None:
-                st.header("📈 Job Market Analysis & Insights")
+            if st.session_state.creative_processor.dataset_analysis is not None:
+                st.header("🎨 Creative Job Market Analysis & Insights")
 
-                tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🔤 Tokenization", "🏢 Companies", "📍 Locations"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Overview", "🎨 Creative Roles", "💻 Software Analysis", "🤖 AI Tools", "📈 Market Trends"])
 
                 with tab1:
-                    st.subheader("Job Dataset Overview")
+                    st.subheader("Creative Job Dataset Overview")
 
                     # Key metrics
                     col1, col2, col3, col4 = st.columns(4)
+                    
+                    analysis = st.session_state.creative_processor.dataset_analysis
+                    role_analysis = analysis.get('role_analysis', {})
+                    adobe_analysis = analysis.get('adobe_analysis', {})
+                    ai_analysis = analysis.get('ai_tools_analysis', {})
+                    
                     with col1:
-                        st.metric("Total Job Listings", f"{len(st.session_state.job_processor.processed_df):,}")
+                        st.metric("Total Creative Jobs", f"{analysis.get('total_jobs', 0):,}")
                     with col2:
-                        if 'company' in st.session_state.job_processor.processed_df.columns:
-                            unique_companies = st.session_state.job_processor.processed_df['company'].nunique()
-                            st.metric("Unique Companies", f"{unique_companies:,}")
-                        else:
-                            st.metric("Unique Companies", "N/A")
+                        st.metric("Designer Roles", f"{role_analysis.get('designer_count', 0):,}")
                     with col3:
-                        if 'city_job_location' in st.session_state.job_processor.processed_df.columns:
-                            unique_cities = st.session_state.job_processor.processed_df['city_job_location'].nunique()
-                            st.metric("Unique Cities", f"{unique_cities:,}")
-                        else:
-                            st.metric("Unique Cities", "N/A")
+                        st.metric("Video Professionals", f"{role_analysis.get('video_professional_count', 0):,}")
                     with col4:
-                        if 'summary_job_title' in st.session_state.job_processor.processed_df.columns:
-                            unique_titles = st.session_state.job_processor.processed_df['summary_job_title'].nunique()
-                            st.metric("Unique Job Titles", f"{unique_titles:,}")
-                        else:
-                            st.metric("Unique Job Titles", "N/A")
+                        st.metric("Photo Professionals", f"{role_analysis.get('photo_professional_count', 0):,}")
+
+                    # Software requirements overview
+                    st.subheader("Software Requirements Overview")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Adobe Only", f"{adobe_analysis.get('adobe_only_count', 0):,}")
+                    with col2:
+                        st.metric("Non-Adobe Only", f"{adobe_analysis.get('non_adobe_only_count', 0):,}")
+                    with col3:
+                        st.metric("Both Adobe & Non-Adobe", f"{adobe_analysis.get('both_apps_count', 0):,}")
+                    with col4:
+                        st.metric("AI Tools Required", f"{ai_analysis.get('ai_tools_count', 0):,}")
 
                     # RAG system status
-                    if st.session_state.rag_ready:
-                        st.success("🧠 RAG System: Active with job-optimized vector search")
-                        vector_stats = st.session_state.job_processor.vector_store.get_stats()
-                        st.info(f"📚 Vector Index: {vector_stats['document_count']} documents indexed")
+                    if st.session_state.creative_rag_ready:
+                        st.success("🧠 Creative RAG System: Active with creative software-optimized vector search")
+                        vector_stats = st.session_state.creative_processor.vector_store.get_stats()
+                        st.info(f"📚 Vector Index: {vector_stats['document_count']} creative job documents indexed")
                     else:
-                        st.warning("🧠 RAG System: Build index to enable intelligent job queries")
+                        st.warning("🧠 Creative RAG System: Build index to enable intelligent creative job queries")
 
                 with tab2:
-                    st.subheader("Job-Specific Tokenization Results")
-
-                    if st.session_state.job_processor.tokenization_summary:
-                        token_summary = st.session_state.job_processor.tokenization_summary
-
-                        # Global metrics
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Total Tokens", f"{token_summary['global_stats']['total_tokens_generated']:,}")
-                        with col2:
-                            st.metric("Unique Tokens", f"{token_summary['global_stats']['total_unique_tokens']:,}")
-                        with col3:
-                            st.metric("Avg Tokens/Column", f"{token_summary['global_stats']['average_tokens_per_column']:.1f}")
-                        with col4:
-                            st.metric("Token Diversity", f"{token_summary['global_stats']['average_diversity_per_column']:.3f}")
-
-                        # Job-specific insights
-                        if 'job_specific_insights' in token_summary:
-                            st.write("### Job-Specific Tokenization Insights")
-                            insights = token_summary['job_specific_insights']
-                            
-                            insight_cols = st.columns(4)
-                            with insight_cols[0]:
-                                st.metric("Company Tokens", f"{insights.get('companies_tokenized', 0):,}")
-                            with insight_cols[1]:
-                                st.metric("Job Title Tokens", f"{insights.get('job_titles_tokenized', 0):,}")
-                            with insight_cols[2]:
-                                st.metric("Location Tokens", f"{insights.get('locations_tokenized', 0):,}")
-                            with insight_cols[3]:
-                                st.metric("Salary Tokens", f"{insights.get('salary_tokens', 0):,}")
-
-                        # Column breakdown
-                        st.write("### Tokenization by Column")
-                        column_stats_data = []
-                        for col, stats in token_summary['column_stats'].items():
-                            column_stats_data.append({
-                                'Column': col,
-                                'Type': 'Job-Specific' if col in ['company', 'summary_job_title', 'city_job_location', 'job_salary'] else 'General',
-                                'Total Tokens': f"{stats['total_tokens']:,}",
-                                'Unique Tokens': f"{stats['unique_tokens']:,}",
-                                'Diversity': f"{stats['token_diversity']:.3f}",
-                                'Top Token': stats['most_common'][0][0] if stats['most_common'] else 'N/A'
-                            })
-
-                        st.dataframe(pd.DataFrame(column_stats_data), use_container_width=True)
+                    st.subheader("Creative Role Analysis")
+                    
+                    if role_analysis:
+                        # Role distribution chart
+                        role_counts = {
+                            'Designers': role_analysis.get('designer_count', 0),
+                            'Video Professionals': role_analysis.get('video_professional_count', 0),
+                            'Photo Professionals': role_analysis.get('photo_professional_count', 0)
+                        }
+                        
+                        if any(role_counts.values()):
+                            fig = px.pie(
+                                values=list(role_counts.values()),
+                                names=list(role_counts.keys()),
+                                title="Distribution of Creative Professional Roles"
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Detailed role information
+                        st.write("### Detailed Role Breakdown")
+                        
+                        if role_analysis.get('designer_jobs'):
+                            with st.expander(f"Designer Roles ({len(role_analysis['designer_jobs'])} positions)"):
+                                designer_data = []
+                                for job in role_analysis['designer_jobs'][:10]:
+                                    designer_data.append({
+                                        'Title': job.get('title', 'Unknown'),
+                                        'Company': job.get('company', 'Unknown'),
+                                        'Description Preview': job.get('description_snippet', '')[:100] + "..."
+                                    })
+                                st.dataframe(pd.DataFrame(designer_data), use_container_width=True)
 
                 with tab3:
-                    st.subheader("Company Analysis")
+                    st.subheader("Creative Software Analysis")
                     
-                    if 'company' in st.session_state.job_processor.processed_df.columns:
-                        company_counts = st.session_state.job_processor.processed_df['company'].value_counts().head(10)
+                    if adobe_analysis and analysis.get('software_analysis'):
+                        software_analysis = analysis['software_analysis']
                         
-                        # Company distribution chart
+                        # Adobe vs Non-Adobe comparison
+                        software_comparison = {
+                            'Adobe Only': adobe_analysis.get('adobe_only_count', 0),
+                            'Non-Adobe Only': adobe_analysis.get('non_adobe_only_count', 0),
+                            'Both Adobe & Non-Adobe': adobe_analysis.get('both_apps_count', 0)
+                        }
+                        
                         fig = px.bar(
-                            x=company_counts.values,
-                            y=company_counts.index,
-                            orientation='h',
-                            title="Top 10 Companies by Job Listings",
-                            labels={'x': 'Number of Job Listings', 'y': 'Company'}
+                            x=list(software_comparison.keys()),
+                            y=list(software_comparison.values()),
+                            title="Adobe vs Non-Adobe Software Requirements"
                         )
-                        fig.update_layout(height=400)
                         st.plotly_chart(fig, use_container_width=True)
                         
-                        # Company stats table
-                        st.write("### Company Statistics")
-                        company_data = []
-                        for company, count in company_counts.head(10).items():
-                            company_data.append({
-                                'Company': company,
-                                'Job Listings': count,
-                                'Percentage': f"{(count/len(st.session_state.job_processor.processed_df)*100):.1f}%"
-                            })
-                        st.dataframe(pd.DataFrame(company_data), use_container_width=True)
-                    else:
-                        st.info("No company column found in the dataset")
+                        # Most mentioned software
+                        st.write("### Most Frequently Mentioned Creative Software")
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.write("**Adobe Applications:**")
+                            adobe_freq = software_analysis.get('adobe_apps_frequency', {})
+                            if adobe_freq:
+                                adobe_df = pd.DataFrame(adobe_freq.most_common(10), columns=['Software', 'Mentions'])
+                                st.dataframe(adobe_df, use_container_width=True)
+                        
+                        with col2:
+                            st.write("**Non-Adobe Applications:**")
+                            non_adobe_freq = software_analysis.get('non_adobe_apps_frequency', {})
+                            if non_adobe_freq:
+                                non_adobe_df = pd.DataFrame(non_adobe_freq.most_common(10), columns=['Software', 'Mentions'])
+                                st.dataframe(non_adobe_df, use_container_width=True)
+                        
+                        # Photoshop specific analysis
+                        photoshop_count = software_analysis.get('photoshop_count', 0)
+                        if photoshop_count > 0:
+                            st.metric("Photoshop Mentions", photoshop_count)
 
                 with tab4:
-                    st.subheader("Location Analysis")
+                    st.subheader("AI Tools in Creative Jobs")
                     
-                    if 'city_job_location' in st.session_state.job_processor.processed_df.columns:
-                        location_counts = st.session_state.job_processor.processed_df['city_job_location'].value_counts().head(10)
+                    if ai_analysis and ai_analysis.get('ai_tools_count', 0) > 0:
+                        st.metric("Jobs Requiring AI Tools", f"{ai_analysis['ai_tools_count']:,}")
                         
-                        # Location distribution chart
-                        fig = px.bar(
-                            x=location_counts.values,
-                            y=location_counts.index,
-                            orientation='h',
-                            title="Top 10 Cities by Job Listings",
-                            labels={'x': 'Number of Job Listings', 'y': 'City'}
-                        )
-                        fig.update_layout(height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                        # AI tools frequency
+                        ai_freq = ai_analysis.get('ai_tools_frequency', {})
+                        if ai_freq:
+                            ai_df = pd.DataFrame(ai_freq.most_common(10), columns=['AI Tool', 'Mentions'])
+                            
+                            fig = px.bar(
+                                ai_df,
+                                x='AI Tool',
+                                y='Mentions',
+                                title="Most Mentioned AI Tools in Creative Jobs"
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            st.dataframe(ai_df, use_container_width=True)
                         
-                        # Location stats table
-                        st.write("### Location Statistics")
-                        location_data = []
-                        for location, count in location_counts.head(10).items():
-                            location_data.append({
-                                'City': location,
-                                'Job Listings': count,
-                                'Percentage': f"{(count/len(st.session_state.job_processor.processed_df)*100):.1f}%"
-                            })
-                        st.dataframe(pd.DataFrame(location_data), use_container_width=True)
+                        # Sample AI tool jobs
+                        if ai_analysis.get('ai_tools_jobs'):
+                            with st.expander("Sample Jobs Requiring AI Tools"):
+                                ai_jobs_data = []
+                                for job in ai_analysis['ai_tools_jobs'][:5]:
+                                    ai_jobs_data.append({
+                                        'Title': job.get('title', 'Unknown'),
+                                        'Company': job.get('company', 'Unknown'),
+                                        'AI Tools': ', '.join(job.get('ai_tools', []))
+                                    })
+                                st.dataframe(pd.DataFrame(ai_jobs_data), use_container_width=True)
                     else:
-                        st.info("No city location column found in the dataset")
+                        st.info("No AI tools mentioned in the current dataset")
 
+                with tab5:
+                    st.subheader("Creative Job Market Trends")
+                    
+                    # Skills analysis
+                    skills_analysis = analysis.get('skills_analysis', {})
+                    
+                    if skills_analysis:
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.write("**Most In-Demand Technical Skills:**")
+                            tech_skills = skills_analysis.get('technical_skills_frequency', {})
+                            if tech_skills:
+                                tech_df = pd.DataFrame(tech_skills.most_common(10), columns=['Technical Skill', 'Mentions'])
+                                st.dataframe(tech_df, use_container_width=True)
+                        
+                        with col2:
+                            st.write("**Most Mentioned Soft Skills:**")
+                            soft_skills = skills_analysis.get('soft_skills_frequency', {})
+                            if soft_skills:
+                                soft_df = pd.DataFrame(soft_skills.most_common(10), columns=['Soft Skill', 'Mentions'])
+                                st.dataframe(soft_df, use_container_width=True)
+                        
+                        st.write("**Popular Creative Tasks:**")
+                        creative_tasks = skills_analysis.get('creative_tasks_frequency', {})
+                        if creative_tasks:
+                            tasks_df = pd.DataFrame(creative_tasks.most_common(10), columns=['Creative Task', 'Mentions'])
+                            st.dataframe(tasks_df, use_container_width=True)
 
-# RAG-Enhanced Job Query Interface
-            if (st.session_state.rag_ready and st.session_state.openai_processor is not None 
-                and st.session_state.openai_processor.is_available()):
+            # RAG-Enhanced Creative Job Query Interface
+            if (st.session_state.creative_rag_ready and st.session_state.creative_openai_processor is not None 
+                and st.session_state.creative_openai_processor.is_available()):
 
-                st.header("🤖 Intelligent Job Market Queries with RAG")
-                st.markdown("Ask sophisticated questions about the job market with **Retrieval-Augmented Generation**!")
+                st.header("🤖 Intelligent Creative Job Analysis with Enhanced RAG")
+                st.markdown("Ask sophisticated questions about **creative professionals**, **Adobe vs non-Adobe software**, **AI tools**, and **creative role requirements**!")
 
                 # RAG system status
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    vector_stats = st.session_state.job_processor.vector_store.get_stats()
+                    vector_stats = st.session_state.creative_processor.vector_store.get_stats()
                     st.info(f"📚 Documents: {vector_stats['document_count']}")
                 with col2:
                     st.info(f"🧠 Context: {'Active' if maintain_context else 'Disabled'}")
                 with col3:
-                    history_count = len(st.session_state.job_processor.conversation_manager.conversation_history)
+                    history_count = len(st.session_state.creative_processor.conversation_manager.conversation_history)
                     st.info(f"💬 History: {history_count} exchanges")
 
-                # Example questions for job data
-                with st.expander("💡 Example Job Market Questions"):
+                # Example questions from q.txt
+                with st.expander("💡 Example Creative Professional Questions (Based on Your q.txt)"):
                     st.markdown("""
-                    **Company Analysis:**
-                    - Which companies are hiring the most and in what locations?
-                    - What types of roles are the top companies posting?
-                    - Compare hiring patterns between different companies
+                    **Adobe vs Non-Adobe Software Analysis:**
+                    - How many postings ask for non-Adobe apps but not Adobe apps? What are those apps?
+                    - How many postings ask for both Adobe and non-Adobe apps? What are those app combinations?
+                    - How many job listings request experience with Photoshop? And how many request Photoshop's competitors?
                     
-                    **Location & Market Insights:**
-                    - What are the best cities for job opportunities in this dataset?
-                    - Which locations offer the highest paying positions?
-                    - Analyze the geographic distribution of different job types
+                    **Creative Role Analysis:**
+                    - How many records describe a designer role? 
+                    - Find all designer roles and summarize their creative job requirements
+                    - What's the most commonly required creative software in designer roles?
+                    - What are the top job titles among designer roles?
                     
-                    **Salary & Compensation:**
-                    - What's the salary range for different types of positions?
-                    - Which companies or locations offer the best compensation?
-                    - Analyze salary trends across different job categories
+                    **Cross-Disciplinary Requirements:**
+                    - Which jobs are not video jobs but still require video editing tools? What video tools are they?
+                    - Which jobs are not photo jobs but still require photo editing tools? What photo tools are they?
+                    - Which jobs are not design jobs but still require design editing tools? What design tools are they?
                     
-                    **Career Guidance:**
-                    - What skills or qualifications are most in demand?
-                    - What career paths show the most opportunities?
-                    - Based on this data, what advice would you give to job seekers?
+                    **AI Tools and Modern Creative Workflows:**
+                    - How many posts ask for AI skills? What are those AI tools? What are those occupations?
+                    - What non-video apps and non-video creative tasks are listed as requirements for video professionals?
+                    - What non-photo apps and non-photo creative tasks are listed as requirements for photo professionals?
                     
-                    **Trend Analysis:**
-                    - What patterns do you see in the job market data?
-                    - Which industries or job functions are most represented?
-                    - What insights can help with career planning?
+                    **Industry and Skills Analysis:**
+                    - What industries are hiring more creative professionals? What kind of creative professionals?
+                    - What are the top mentioned creative activities/tasks?
+                    - What soft skills are mentioned in the postings for creative professionals? (collaboration, communication, presentation, etc.)
+                    - Can you tell me how many of those jobs ask for Photoshop vs. video editing software? Which is more in demand?
                     """)
 
                 # Query input
                 question = st.text_area(
-                    "Ask about the job market (RAG-enhanced analysis):",
-                    placeholder="e.g., Which companies are hiring the most software engineers and what are the salary ranges?",
+                    "Ask about creative jobs, software requirements, or industry trends:",
+                    placeholder="e.g., How many designer roles require Adobe software vs non-Adobe alternatives?",
                     height=100
                 )
 
@@ -2089,29 +2635,30 @@ def main():
                 col1, col2 = st.columns(2)
                 with col1:
                     show_retrieved_docs = st.checkbox("Show Retrieved Context", value=True,
-                                                    help="Display job data retrieved by RAG")
+                                                    help="Display creative job data retrieved by RAG")
                 with col2:
                     show_conversation_history = st.checkbox("Show Conversation Context", value=False,
                                                           help="Display conversation history")
 
-                if st.button("🚀 Analyze with RAG", type="primary", use_container_width=True) and question:
-                    with st.spinner("Performing intelligent job market analysis..."):
-                        # Process query with RAG
-                        response = st.session_state.openai_processor.query_job_data_with_rag(
+                if st.button("🚀 Analyze Creative Jobs with RAG", type="primary", use_container_width=True) and question:
+                    with st.spinner("Performing intelligent creative job analysis..."):
+                        # Process query with enhanced RAG
+                        response = st.session_state.creative_openai_processor.query_creative_data_with_rag(
                             question,
-                            st.session_state.job_processor.data_summary,
-                            st.session_state.job_processor.vector_store,
-                            st.session_state.job_processor.conversation_manager
+                            st.session_state.creative_processor.data_summary,
+                            st.session_state.creative_processor.vector_store,
+                            st.session_state.creative_processor.conversation_manager,
+                            st.session_state.creative_processor.dataset_analysis
                         )
 
                         # Display results
-                        st.subheader("📊 Job Market Analysis Results")
+                        st.subheader("📊 Creative Job Analysis Results")
                         st.write(response)
 
                         # Show retrieved context if requested
                         if show_retrieved_docs:
-                            with st.expander("📄 Retrieved Job Data Context"):
-                                retrieved_docs = st.session_state.job_processor.vector_store.search(question, k=rag_k_results)
+                            with st.expander("📄 Retrieved Creative Job Context"):
+                                retrieved_docs = st.session_state.creative_processor.vector_store.search(question, k=rag_k_results)
                                 if retrieved_docs:
                                     for i, doc in enumerate(retrieved_docs, 1):
                                         similarity = doc['score']
@@ -2122,12 +2669,26 @@ def main():
                                         st.write(text)
                                         
                                         if metadata:
+                                            creative_info = []
                                             if metadata.get('company'):
-                                                st.caption(f"Company: {metadata['company']}")
+                                                creative_info.append(f"Company: {metadata['company']}")
                                             if metadata.get('location'):
-                                                st.caption(f"Location: {metadata['location']}")
-                                            if metadata.get('job_count'):
-                                                st.caption(f"Job Count: {metadata['job_count']}")
+                                                creative_info.append(f"Location: {metadata['location']}")
+                                            if metadata.get('adobe_apps'):
+                                                creative_info.append(f"Adobe Apps: {', '.join(metadata['adobe_apps'])}")
+                                            if metadata.get('non_adobe_apps'):
+                                                creative_info.append(f"Non-Adobe Apps: {', '.join(metadata['non_adobe_apps'])}")
+                                            if metadata.get('ai_tools'):
+                                                creative_info.append(f"AI Tools: {', '.join(metadata['ai_tools'])}")
+                                            if metadata.get('is_designer'):
+                                                creative_info.append("Role: Designer")
+                                            elif metadata.get('is_video_professional'):
+                                                creative_info.append("Role: Video Professional")
+                                            elif metadata.get('is_photo_professional'):
+                                                creative_info.append("Role: Photo Professional")
+                                            
+                                            if creative_info:
+                                                st.caption(" | ".join(creative_info))
                                         
                                         st.markdown("---")
                                 else:
@@ -2136,7 +2697,7 @@ def main():
                         # Show conversation context if requested
                         if show_conversation_history and maintain_context:
                             with st.expander("💬 Conversation History"):
-                                history = st.session_state.job_processor.conversation_manager.conversation_history
+                                history = st.session_state.creative_processor.conversation_manager.conversation_history
                                 if history:
                                     for i, exchange in enumerate(reversed(history[-5:]), 1):
                                         st.write(f"**Exchange {len(history) - i + 1}** ({exchange.get('query_type', 'general')})")
@@ -2147,120 +2708,123 @@ def main():
                                 else:
                                     st.write("No conversation history yet")
 
-                # RAG System Testing
-                st.header("🔬 RAG System Testing & Exploration")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.subheader("Vector Search Test")
-                    test_query = st.text_input("Test job data search:", 
-                                             placeholder="e.g., software engineer positions")
-                    
-                    if test_query and st.button("Search Job Documents"):
-                        results = st.session_state.job_processor.vector_store.search(test_query, k=5)
-                        if results:
-                            for i, result in enumerate(results, 1):
-                                st.write(f"**{i}.** Score: {result['score']:.3f}")
-                                st.write(result['text'][:200] + "...")
-                                if result.get('metadata', {}).get('company'):
-                                    st.caption(f"Company: {result['metadata']['company']}")
-                                st.markdown("---")
+                # Quick Analysis Buttons for Common Questions
+                st.subheader("🔍 Quick Analysis")
+                st.markdown("Click for instant analysis of common creative job questions:")
+                
+                quick_col1, quick_col2, quick_col3 = st.columns(3)
+                
+                with quick_col1:
+                    if st.button("Count Designer Roles", use_container_width=True):
+                        if st.session_state.creative_processor.dataset_analysis:
+                            designer_count = st.session_state.creative_processor.dataset_analysis['role_analysis'].get('designer_count', 0)
+                            st.success(f"**{designer_count}** designer roles found in the dataset")
                         else:
-                            st.write("No results found")
-
-                with col2:
-                    st.subheader("Query History")
-                    history = st.session_state.job_processor.conversation_manager.conversation_history
-                    if history:
-                        for i, exchange in enumerate(reversed(history[-5:]), 1):
-                            query_type = exchange.get('query_type', 'general')
-                            with st.expander(f"{query_type.title()}: {exchange['question'][:40]}..."):
-                                st.write(f"**Question:** {exchange['question']}")
-                                st.write(f"**Answer:** {exchange['answer'][:300]}...")
-                                st.caption(f"Type: {query_type} | Time: {exchange['timestamp']}")
-                    else:
-                        st.write("No query history yet")
+                            st.error("Please analyze dataset first")
+                
+                with quick_col2:
+                    if st.button("Adobe vs Non-Adobe", use_container_width=True):
+                        if st.session_state.creative_processor.dataset_analysis:
+                            adobe_analysis = st.session_state.creative_processor.dataset_analysis['adobe_analysis']
+                            st.success(f"Adobe only: **{adobe_analysis.get('adobe_only_count', 0)}** | Non-Adobe only: **{adobe_analysis.get('non_adobe_only_count', 0)}** | Both: **{adobe_analysis.get('both_apps_count', 0)}**")
+                        else:
+                            st.error("Please analyze dataset first")
+                
+                with quick_col3:
+                    if st.button("AI Tools Count", use_container_width=True):
+                        if st.session_state.creative_processor.dataset_analysis:
+                            ai_count = st.session_state.creative_processor.dataset_analysis['ai_tools_analysis'].get('ai_tools_count', 0)
+                            st.success(f"**{ai_count}** jobs mention AI tools")
+                        else:
+                            st.error("Please analyze dataset first")
 
                 # Clear conversation history
                 if st.button("🗑️ Clear Conversation History"):
-                    st.session_state.job_processor.conversation_manager.clear_history()
+                    st.session_state.creative_processor.conversation_manager.clear_history()
                     st.success("Conversation history cleared")
                     st.rerun()
 
-            elif st.session_state.job_processor.tokenized_df is not None:
-                st.header("⚠️ RAG System Setup Required")
-                if not st.session_state.openai_processor:
+            elif st.session_state.creative_processor.tokenized_df is not None:
+                st.header("⚠️ Enhanced RAG System Setup Required")
+                if not st.session_state.creative_openai_processor:
                     st.error("Please enter your OpenAI API key in the sidebar")
-                elif not st.session_state.openai_processor.is_available():
-                    st.error(f"OpenAI client error: {st.session_state.openai_processor._initialization_error}")
+                elif not st.session_state.creative_openai_processor.is_available():
+                    st.error(f"OpenAI client error: {st.session_state.creative_openai_processor._initialization_error}")
                 else:
-                    st.warning("Please build the RAG index to enable intelligent job market queries")
+                    st.warning("Please build the RAG index to enable intelligent creative job queries")
 
             # Export functionality
-            if st.session_state.job_processor.tokenized_df is not None:
-                st.header("📤 Export Enhanced Job Data")
+            if st.session_state.creative_processor.tokenized_df is not None:
+                st.header("📤 Export Enhanced Creative Job Data")
 
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
                     if st.button("📊 Download Processed Data"):
-                        csv = st.session_state.job_processor.processed_df.to_csv(index=False)
+                        csv = st.session_state.creative_processor.processed_df.to_csv(index=False)
                         st.download_button(
                             label="Download Processed CSV",
                             data=csv,
-                            file_name="processed_job_data.csv",
+                            file_name="processed_creative_jobs.csv",
                             mime="text/csv"
                         )
 
                 with col2:
                     if st.button("🔤 Download Tokenized Data"):
-                        csv = st.session_state.job_processor.tokenized_df.to_csv(index=False)
+                        csv = st.session_state.creative_processor.tokenized_df.to_csv(index=False)
                         st.download_button(
                             label="Download Tokenized CSV",
                             data=csv,
-                            file_name="tokenized_job_data.csv",
+                            file_name="tokenized_creative_jobs.csv",
                             mime="text/csv"
                         )
 
                 with col3:
                     if st.button("📚 Download RAG Documents"):
-                        if st.session_state.job_processor.vector_store.documents:
+                        if st.session_state.creative_processor.vector_store.documents:
                             rag_data = {
-                                "documents": st.session_state.job_processor.vector_store.documents,
-                                "metadata": st.session_state.job_processor.vector_store.metadata,
-                                "total_documents": len(st.session_state.job_processor.vector_store.documents),
-                                "vector_dimension": st.session_state.job_processor.vector_store.dimension
+                                "documents": st.session_state.creative_processor.vector_store.documents,
+                                "metadata": st.session_state.creative_processor.vector_store.metadata,
+                                "total_documents": len(st.session_state.creative_processor.vector_store.documents),
+                                "vector_dimension": st.session_state.creative_processor.vector_store.dimension
                             }
                             json_data = json.dumps(rag_data, indent=2)
                             st.download_button(
                                 label="Download RAG Documents JSON",
                                 data=json_data,
-                                file_name="job_rag_documents.json",
+                                file_name="creative_jobs_rag_documents.json",
                                 mime="application/json"
                             )
 
                 with col4:
-                    if st.button("📈 Download Analysis Summary"):
-                        if st.session_state.job_processor.data_summary:
-                            summary_json = json.dumps(st.session_state.job_processor.data_summary, indent=2)
+                    if st.button("📈 Download Analysis Results"):
+                        if st.session_state.creative_processor.dataset_analysis:
+                            analysis_json = json.dumps(st.session_state.creative_processor.dataset_analysis, indent=2, default=str)
                             st.download_button(
                                 label="Download Analysis JSON",
-                                data=summary_json,
-                                file_name="job_analysis_summary.json",
+                                data=analysis_json,
+                                file_name="creative_jobs_analysis.json",
                                 mime="application/json"
                             )
 
     # Footer
     st.markdown("---")
     st.markdown("""
-    ## Job Data RAG Analyzer v3.0 - Complete Solution
+    ## Creative Professionals Job Data RAG Analyzer v3.1 - Complete Solution
 
-    **Key Features:**
-    - **Job-Specific Processing**: Optimized tokenization for company names, job titles, locations, and salaries
-    - **Enhanced RAG System**: Vector search with job market context and conversation history
-    - **Intelligent Analysis**: OpenAI-powered insights with retrieval-augmented generation
-    - **Professional Interface**: Clean, intuitive design optimized for HR professionals and job seekers
+    **Enhanced Features for Creative Job Analysis:**
+    - **Adobe vs Non-Adobe Analysis**: Comprehensive software requirement analysis
+    - **Creative Role Categorization**: Automatic detection of designers, video professionals, photo specialists
+    - **AI Tools Integration**: Detection and analysis of AI tool requirements in creative workflows
+    - **Enhanced RAG System**: Vector search optimized for creative software and skills
+    - **Professional Analytics**: Detailed insights for creative industry trends
+
+    **Perfect for answering questions like:**
+    - How many designer roles require specific software combinations?
+    - Which creative jobs are adopting AI tools?
+    - What's the demand for Adobe vs alternative creative software?
+    - Cross-disciplinary skill requirements analysis
+    - Creative industry hiring patterns and trends
 
     **Dependencies for Full Functionality:**
     ```bash
@@ -2269,18 +2833,19 @@ def main():
     
     **How to Run:**
     ```bash
-    # Save all parts as job_rag_analyzer_v3.py, then run:
-    streamlit run job_rag_analyzer_v3.py
+    # Save all parts as creative_job_rag_analyzer_v31.py, then run:
+    streamlit run creative_job_rag_analyzer_v31.py
     ```
     
-    **Perfect for:**
-    - HR professionals analyzing job market trends
-    - Recruiters understanding hiring patterns
-    - Job seekers researching opportunities
-    - Data analysts exploring employment data
-    - Career counselors providing guidance
+    **Optimized for Creative Professionals Analysis:**
+    - HR professionals in creative industries
+    - Creative recruiters and talent acquisition
+    - Creative professionals planning career transitions
+    - Market researchers analyzing creative job trends
+    - Educational institutions developing creative programs
     """)
 
 if __name__ == "__main__":
     main()
+
 
