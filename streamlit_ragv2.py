@@ -1215,164 +1215,33 @@ class JobCSVProcessor:
                 logger.error(f"Full traceback: {traceback.format_exc()}")
                 return False
 
-    def tokenize_job_dataset(self) -> bool:
-        """Perform job-specific tokenization of the dataset"""
-        if self.processed_df is None:
-            st.error("No processed data available")
-            return False
-
-        try:
-            st.info("Starting job-specific tokenization process...")
-
-            # Initialize tokenized dataframe
-            self.tokenized_df = self.processed_df.copy()
-
-            # Dictionary to store tokenization results
-            all_tokens = {}
-            column_token_stats = {}
-
-            progress_bar = st.progress(0)
-            total_columns = len(self.processed_df.columns)
-
-            for idx, col in enumerate(self.processed_df.columns):
-                st.info(f"Tokenizing column: {col}")
-
-                column_tokens = []
-                token_column_name = f"{col}_tokens"
-
-                try:
-                    # Job-specific tokenization based on column type
-                    if col == 'company':
-                        # Company name tokenization
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_company(value)
-                            column_tokens.extend(tokens)
-
-                    elif col in ['summary_job_title', 'displayed_job_title']:
-                        # Job title tokenization
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_job_title(value)
-                            column_tokens.extend(tokens)
-
-                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
-                        # Location tokenization
-                        location_type = col.split('_')[0]  # Extract 'city', 'state', or 'country'
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_location(value, location_type)
-                            column_tokens.extend(tokens)
-
-                    elif col == 'job_salary':
-                        # Salary tokenization
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_salary(value)
-                            column_tokens.extend(tokens)
-
-                    elif col == 'job_description':
-                        # Job description tokenization (text analysis)
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_text(value, method='lemmatize')
-                            column_tokens.extend(tokens)
-
-                    elif pd.api.types.is_datetime64_any_dtype(self.processed_df[col]):
-                        # Date tokenization (if applicable)
-                        for value in self.processed_df[col]:
-                            try:
-                                date_str = str(value)
-                                tokens = self.tokenizer.tokenize_text(date_str)
-                                tokens.extend(['date_field', f'{col}_date'])
-                                column_tokens.extend(tokens)
-                            except:
-                                column_tokens.extend(['date_field', 'unknown_date'])
-
-                    else:
-                        # General text tokenization for other fields
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
-                            column_tokens.extend(tokens)
-
-                    # Store tokens for this column
-                    all_tokens[col] = column_tokens
-
-                    # Calculate token statistics
-                    unique_tokens = set(column_tokens)
-                    column_token_stats[col] = {
-                        'total_tokens': len(column_tokens),
-                        'unique_tokens': len(unique_tokens),
-                        'most_common': Counter(column_tokens).most_common(10),
-                        'token_diversity': len(unique_tokens) / len(column_tokens) if column_tokens else 0
-                    }
-
-                    # Create tokenized column for display
-                    token_lists = []
-                    
-                    if col == 'company':
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_company(value)
-                            token_lists.append(' | '.join(tokens))
-                    elif col in ['summary_job_title', 'displayed_job_title']:
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_job_title(value)
-                            token_lists.append(' | '.join(tokens))
-                    elif col in ['city_job_location', 'state_job_location', 'country_job_location']:
-                        location_type = col.split('_')[0]
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_location(value, location_type)
-                            token_lists.append(' | '.join(tokens))
-                    elif col == 'job_salary':
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_salary(value)
-                            token_lists.append(' | '.join(tokens))
-                    else:
-                        for value in self.processed_df[col]:
-                            tokens = self.tokenizer.tokenize_text(str(value), method='lemmatize')
-                            token_lists.append(' | '.join(tokens))
-
-                    self.tokenized_df[token_column_name] = token_lists
-
-                except Exception as col_error:
-                    logger.error(f"Error tokenizing column {col}: {str(col_error)}")
-                    # Create empty tokenization for failed column
-                    column_token_stats[col] = {
-                        'total_tokens': 0,
-                        'unique_tokens': 0,
-                        'most_common': [],
-                        'token_diversity': 0
-                    }
-                    self.tokenized_df[f"{col}_tokens"] = ['error'] * len(self.processed_df)
-
-                # Update progress
-                progress_bar.progress((idx + 1) / total_columns)
-
-            # Create job-specific tokenization summary
-            valid_stats = {k: v for k, v in column_token_stats.items() if v['total_tokens'] > 0}
-            
-            self.tokenization_summary = {
-                'total_columns_tokenized': len(column_token_stats),
-                'successful_columns': len(valid_stats),
-                'column_stats': column_token_stats,
-                'global_stats': {
-                    'total_tokens_generated': sum([stats['total_tokens'] for stats in valid_stats.values()]),
-                    'total_unique_tokens': len(set([token for tokens in all_tokens.values() for token in tokens])),
-                    'average_tokens_per_column': np.mean([stats['total_tokens'] for stats in valid_stats.values()]) if valid_stats else 0,
-                    'average_diversity_per_column': np.mean([stats['token_diversity'] for stats in valid_stats.values()]) if valid_stats else 0
-                },
-                'job_specific_insights': {
-                    'companies_tokenized': len(all_tokens.get('company', [])),
-                    'job_titles_tokenized': len(all_tokens.get('summary_job_title', [])) + len(all_tokens.get('displayed_job_title', [])),
-                    'locations_tokenized': len(all_tokens.get('city_job_location', [])) + len(all_tokens.get('state_job_location', [])),
-                    'salary_tokens': len(all_tokens.get('job_salary', []))
-                }
-            }
-
-            st.success("Job-specific tokenization completed successfully!")
-            logger.info(f"Job tokenization completed: {len(valid_stats)} successful columns")
-            return True
-            
-        except Exception as e:
-            st.error(f"Error during job tokenization: {str(e)}")
-            logger.error(f"Job tokenization error: {str(e)}")
-            return False
     
+    def tokenize_job_dataset(self) -> bool:
+        """
+        Tokenizes the job dataset into component tokens for company, title, location, salary, and description.
+        Returns True if successful, False otherwise.
+        """
+        import re
+        if self.df is None or self.df.empty:
+            return False
+        try:
+            def clean_text(s: str) -> str:
+                if s is None: return ""
+                return re.sub(r"\s+", " ", str(s)).strip()
+            # apply cleaning
+            for c in self.df.columns:
+                self.df[c] = self.df[c].fillna("").astype(str).map(clean_text)
+            # create search_text
+            cols = [c for c in ['Summary job title','Displayed job title','Job Description','Detailed job location'] if c in self.df.columns]
+            if cols:
+                self.df['search_text'] = self.df[cols].agg(" ".join, axis=1).str.lower()
+            else:
+                self.df['search_text'] = ""
+            return True
+        except Exception as e:
+            print("Error in tokenize_job_dataset:", e)
+            return False
+
     def build_job_rag_index(self) -> bool:
         """Build RAG vector index optimized for job data"""
         if self.processed_df is None or self.tokenized_df is None:
